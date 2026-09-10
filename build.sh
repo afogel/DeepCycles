@@ -1,8 +1,9 @@
 #!/bin/bash
-# Builds DeepCycles.app. Requires macOS 13+ and Xcode Command Line Tools:
+# Builds DeepCycles.app. Requires macOS 14+ and Xcode Command Line Tools:
 #   xcode-select --install
 # Usage:  ./build.sh            -> build/DeepCycles.app
 #         ./build.sh --install  -> also copies to /Applications
+# Tests:  swift run DeepCyclesCoreTests
 set -euo pipefail
 cd "$(dirname "$0")"
 

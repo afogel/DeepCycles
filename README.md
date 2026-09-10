@@ -138,20 +138,44 @@ Stray thoughts during a block go in *Collection* (⌘K) as checkable items; at s
 ## Where data lives
 `~/Library/Application Support/DeepCycles/plans.json` — one entry per day, and `system.json` for the core documents, weekly plans and disciplines. Plain JSON.
 
-## Files
-- `Sources/DeepCycles/Models.swift`         data model + JSON persistence (`Store`)
-- `Sources/DeepCycles/CalendarService.swift` EventKit read/write
-- `Sources/DeepCycles/CycleEngine.swift`     timer state machine + notifications
-- `Sources/DeepCycles/SessionFlow.swift`     the session's steps (⌘↩), shared by buttons, menus, palette
-- `Sources/DeepCycles/CommandCatalog.swift`  every command and shortcut, once; menus, palette and ⌨ sheet read it
-- `Sources/DeepCycles/PlannerView.swift`     time-block grid and editor
-- `Sources/DeepCycles/CyclesView.swift`      Focus: session list, Prepare / Work / Debrief
-- `Sources/DeepCycles/ShutdownView.swift`    disciplines, metrics and shutdown ritual
-- `Sources/DeepCycles/SystemsView.swift`     root document, core docs, weekly plan, disciplines
-- `Sources/DeepCycles/SettingsView.swift`    ⌘, — appearance, default hours, calendar
-- `Sources/DeepCycles/Controls.swift`        keyboard-first controls: focus ring, switch, segments, stepper, rating
-- `Sources/DeepCycles/Theme.swift`          palette (light + calm dark), type, button styles
-- `Resources/Info.plist`, `build.sh`
+Saves are coalesced: an edit is written a moment later, and anything pending is written when
+the app goes to the background or quits. Set `DEEPCYCLES_DATA_DIR=/some/folder` to run
+against scratch data instead.
 
-Set `DEEPCYCLES_DATA_DIR=/some/folder` to run against scratch data instead of
-`~/Library/Application Support/DeepCycles`.
+## Code layout
+
+Two modules. `DeepCyclesCore` has no SwiftUI or AppKit in it: the data, its persistence, the
+timer and the session flow, all unit-tested. `DeepCycles` is the SwiftUI app on top, one
+directory per page.
+
+    Sources/DeepCyclesCore/
+      Model/      Blocks, Cycles, DayPlan, Systems, Time — the data and its JSON migrations
+      State/      Store (plans.json / system.json, undo, coalesced saves), AppState (what the
+                  window is showing), Pages (tabs, stages, pending commands), UndoHistory
+      Services/   CalendarService (EventKit), CycleEngine (the timer state machine)
+      Flow/       SessionFlow (the ⌘↩ steps, shared by buttons, menus and palette), FuzzyMatch
+      Layout/     OverlapPacking (side-by-side blocks)
+    Sources/DeepCycles/
+      App/        DeepCyclesApp, RootView, DateBar, MenuBarView, CycleAlerts (beep, notification)
+      Commands/   CommandCatalog (every command and shortcut, once), AppCommands (the menus),
+                  CommandPalette, ShortcutsSheet
+      Design/     Theme (palette, type, tokens), Buttons, Controls (keyboard-first controls),
+                  WritingField, Wordmark
+      Day/        PlannerView, DayGrid, BlockControls
+      Week/       WeekView, ValuesTracker
+      Focus/      FocusView, CyclesView (session list), SessionView (Prepare / Work / Debrief),
+                  SessionPulse
+      Systems/    SystemsView          Shutdown/   ShutdownView          Settings/   SettingsView
+      Shared/     TaskList
+    Tests/DeepCyclesCoreTests/   the Core tests        Tests/TestKit/   a small XCTest stand-in
+    Resources/Info.plist, build.sh
+
+## Tests
+
+    swift run DeepCyclesCoreTests
+
+covers the models and their JSON migrations, the store (undo, persistence, day and week
+queries), the timer engine on a fake clock, the whole session flow, overlap packing and the
+palette matcher. The Command Line Tools ship neither XCTest nor Swift Testing, so the tests
+are an executable written against `Tests/TestKit`, a few dozen lines that mirror the XCTest
+API. With Xcode installed they become a regular `.testTarget` by changing one import.
