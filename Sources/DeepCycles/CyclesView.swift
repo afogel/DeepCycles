@@ -1,36 +1,45 @@
 import SwiftUI
 
+/// Focus mode: the day's sessions on the left, the selected session's three steps on the right.
+/// Keyboard: Tab through everything; the session list takes ↑↓ ↩ ⌫; ⌘↩ is the next step;
+/// ⇧⌘N a new session; ⎋ back to the day. Selection lives in the store so menus and the
+/// palette can drive it (see SessionFlow).
 @MainActor
 struct CyclesView: View {
     @EnvironmentObject var store: Store
     @EnvironmentObject var engine: CycleEngine
-    @State private var selectedID: UUID? = nil
-    @State private var stage: Int = 0   // 0 Prepare, 1 Work, 2 Debrief
+    @FocusState private var listFocused: Bool
+
+    private var selectedID: UUID? { store.focusSessionID }
 
     var body: some View {
         HStack(spacing: 0) {
             sessionList.frame(width: 250).background(Theme.paperDeep)
             if let id = selectedID, store.today.sessions.contains(where: { $0.id == id }) {
-                SessionView(session: binding(for: id), stage: $stage, dateKey: store.selectedKey)
+                SessionView(session: binding(for: id), stage: $store.focusStage, dateKey: store.selectedKey)
             } else {
                 emptyState
             }
         }
-        .onAppear { syncSelection() }
-        .onChange(of: store.today.sessions.count) { _ in syncSelection() }
-        .onChange(of: engine.sessionID) { _ in syncSelection() }
-        .onChange(of: store.selectedDate) { _ in selectedID = nil; syncSelection() }
-        .onChange(of: store.pending) { cmd in
-            guard cmd == .startCycle else { return }
+        .onAppear { ensureSelection(); handle(store.pending) }
+        .onChange(of: store.today.sessions.count) { ensureSelection() }
+        .onChange(of: engine.sessionID) { followEngine() }
+        .onChange(of: store.selectedDate) { store.focusSessionID = nil; ensureSelection() }
+        .onChange(of: store.pending) { handle(store.pending) }
+        .onExitCommand { store.focusMode = false }
+    }
+
+    /// Commands from the menus / palette that only Focus can carry out.
+    private func handle(_ cmd: PendingCommand?) {
+        switch cmd {
+        case .primaryAction:
             store.pending = nil
-            guard !engine.isRunning, let id = selectedID,
-                  let s = store.today.sessions.first(where: { $0.id == id }) else { return }
-            stage = 1
-            if let i = store.today.sessions.firstIndex(where: { $0.id == id }) {
-                while store.today.sessions[i].cycles.count < s.cycleCount { store.today.sessions[i].cycles.append(WorkCycle()) }
-            }
-            engine.attach(sessionID: id, dateKey: store.selectedKey)
-            engine.startWork(minutes: s.cycleMinutes)
+            SessionFlow.performPrimary(store, engine)
+        case .newSession:
+            store.pending = nil
+            SessionFlow.newSession(store, from: SessionFlow.nextFreeDeepBlock(store))
+        default:
+            break
         }
     }
 
@@ -39,33 +48,44 @@ struct CyclesView: View {
             Text("No session yet").font(Theme.display(22)).foregroundColor(Theme.ink)
             Text("A session is one deep-work block executed as 30-minute cycles with 10-minute breaks.\nPick a deep block below, or start a standalone session.")
                 .multilineTextAlignment(.center).foregroundColor(Theme.inkFaint).frame(maxWidth: 380)
-            let deepBlocks = store.today.blocks.filter { $0.kind == .deep }
-            if deepBlocks.isEmpty {
-                Button("Plan a deep block first") { store.focusMode = false; store.tab = 0 }.buttonStyle(InkButtonStyle())
-            } else {
-                HStack {
+            let deepBlocks = store.today.blocks.filter { $0.kind == .deep && store.session(forBlock: $0.id) == nil }
+            HStack {
+                if deepBlocks.isEmpty {
+                    Button("Plan a deep block first") { store.focusMode = false; store.tab = 0 }.buttonStyle(InkButtonStyle())
+                } else {
                     ForEach(deepBlocks) { b in
-                        Button("\(b.start.shortTime) \(b.title)") { create(from: b) }.buttonStyle(InkButtonStyle())
+                        Button("\(b.start.shortTime) \(b.title)") { SessionFlow.newSession(store, from: b) }.buttonStyle(InkButtonStyle())
                     }
                 }
+                Button("Standalone session") { SessionFlow.newSession(store, from: nil) }.buttonStyle(QuietButtonStyle())
             }
+            Text("⌘↩ starts a session for the next deep block · ⇧⌘N new session")
+                .font(TypeScale.caption).foregroundColor(Theme.inkFaint)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func syncSelection() {
+    // MARK: Selection
+
+    /// Keep a valid selection: the running session if it is on this day, else the first live one.
+    private func ensureSelection() {
+        let sessions = store.today.sessions
+        if let id = selectedID, sessions.contains(where: { $0.id == id }) { return }
         if let running = engine.sessionID, engine.sessionDateKey == store.selectedKey,
-           store.today.sessions.contains(where: { $0.id == running }) {
-            if selectedID != running { selectedID = running; stage = hasPrepared(running) ? 1 : 0 }
-        } else if selectedID == nil {
-            selectedID = store.today.sessions.last?.id
-            stage = 0
+           let s = sessions.first(where: { $0.id == running }) {
+            SessionFlow.select(store, engine, s)
+        } else if let s = SessionFlow.listOrder(store).first {
+            SessionFlow.select(store, engine, s)
+        } else {
+            store.focusSessionID = nil
         }
     }
 
-    private func hasPrepared(_ id: UUID) -> Bool {
-        guard let s = store.today.sessions.first(where: { $0.id == id }) else { return false }
-        return !s.accomplish.isEmpty
+    /// The timer was attached to a session on this day: show it.
+    private func followEngine() {
+        guard let running = engine.sessionID, engine.sessionDateKey == store.selectedKey,
+              let s = store.today.sessions.first(where: { $0.id == running }), selectedID != running else { return }
+        SessionFlow.select(store, engine, s)
     }
 
     private func binding(for id: UUID) -> Binding<CycleSession> {
@@ -77,52 +97,73 @@ struct CyclesView: View {
         )
     }
 
+    // MARK: Session list
+
     private var sessionList: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            SectionHeading("Sessions").padding(16)
+        let list = SessionFlow.listOrder(store)
+        let live = list.filter { !$0.finished }
+        let done = list.filter { $0.finished }
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .firstTextBaseline) {
+                SectionHeading("Sessions")
+                Spacer()
+                Text("↑↓ · ↩ · ⌫").font(TypeScale.caption).foregroundColor(Theme.inkFaint).opacity(listFocused ? 1 : 0)
+            }
+            .padding(16)
             ScrollView {
                 VStack(alignment: .leading, spacing: 6) {
-                    let ordered = store.orderedSessions(store.today)
-                    let live = ordered.filter { !$0.finished }
-                    let done = ordered.filter { $0.finished }
-                    ForEach(live) { s in
-                        sessionRow(s).onTapGesture { selectedID = s.id; stage = s.accomplish.isEmpty ? 0 : 1 }
-                    }
+                    ForEach(live) { s in row(s) }
                     if !done.isEmpty {
                         Text("Done today").font(TypeScale.caption).foregroundColor(Theme.inkFaint).padding(.top, 10).padding(.leading, 4)
-                        ForEach(done) { s in
-                            sessionRow(s).opacity(0.75).onTapGesture { selectedID = s.id; stage = 2 }
-                        }
+                        ForEach(done) { s in row(s).opacity(0.75) }
                     }
-                    if ordered.isEmpty {
+                    if list.isEmpty {
                         Text("Sessions live with their day; older ones are in Systems → Session log.")
                             .font(TypeScale.caption).foregroundColor(Theme.inkFaint).padding(4)
                     }
                 }
                 .padding(.horizontal, 12)
             }
+            .focusable()
+            .focused($listFocused)
+            .focusEffectDisabled()
+            .onKeyPress(.upArrow) { SessionFlow.selectAdjacent(store, engine, -1); return .handled }
+            .onKeyPress(.downArrow) { SessionFlow.selectAdjacent(store, engine, 1); return .handled }
+            .onKeyPress(.return) {
+                guard selectedID != nil else { return .ignored }
+                store.requestFormFocus()
+                return .handled
+            }
+            .onKeyPress(.delete) {
+                guard let id = selectedID else { return .ignored }
+                SessionFlow.delete(store, engine, id)
+                return .handled
+            }
+            .accessibilityLabel("Sessions")
             Spacer()
-            let deepBlocks = store.today.blocks.filter { $0.kind == .deep && store.session(forBlock: $0.id) == nil }
-            Menu {
-                Button("Standalone session") { create(from: nil) }
-                if !deepBlocks.isEmpty { Divider() }
-                ForEach(deepBlocks) { b in
-                    Button("\(b.start.shortTime)  \(b.title)  (\(b.minutes) min)") { create(from: b) }
-                }
-            } label: { Label("New session", systemImage: "plus") }
-            .menuStyle(.borderlessButton)
-            .padding(16)
+            newSessionMenu
         }
     }
 
-    private func sessionRow(_ s: CycleSession) -> some View {
-        SessionRowView(session: s, isSelected: selectedID == s.id, onDelete: { delete(s) })
+    private func row(_ s: CycleSession) -> some View {
+        SessionRowView(session: s, isSelected: selectedID == s.id, listFocused: listFocused) {
+            SessionFlow.delete(store, engine, s.id)
+        }
+        .onTapGesture { SessionFlow.select(store, engine, s); listFocused = true }
     }
 
-    private func delete(_ s: CycleSession) {
-        if engine.sessionID == s.id { engine.stop() }
-        store.today.sessions.removeAll { $0.id == s.id }
-        if selectedID == s.id { selectedID = nil }
+    private var newSessionMenu: some View {
+        let deepBlocks = store.today.blocks.filter { $0.kind == .deep && store.session(forBlock: $0.id) == nil }
+        return Menu {
+            Button("Standalone session") { SessionFlow.newSession(store, from: nil) }
+            if !deepBlocks.isEmpty { Divider() }
+            ForEach(deepBlocks) { b in
+                Button("\(b.start.shortTime)  \(b.title)  (\(b.minutes) min)") { SessionFlow.newSession(store, from: b) }
+            }
+        } label: { Label("New session", systemImage: "plus") }
+        .menuStyle(.borderlessButton)
+        .help("⇧⌘N: a session for the next deep block")
+        .padding(16)
     }
 }
 
@@ -130,6 +171,7 @@ struct CyclesView: View {
 private struct SessionRowView: View {
     let session: CycleSession
     let isSelected: Bool
+    let listFocused: Bool
     let onDelete: () -> Void
     @EnvironmentObject var store: Store
     @EnvironmentObject var engine: CycleEngine
@@ -156,18 +198,10 @@ private struct SessionRowView: View {
         .padding(10)
         .background(isSelected ? Theme.paper : Theme.paper.opacity(hover ? 0.6 : 0.4))
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .focusRing(isSelected && listFocused, shape: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .contentShape(Rectangle())
         .onHover { hover = $0 }
         .contextMenu { Button("Delete session", action: onDelete) }
-    }
-}
-
-extension CyclesView {
-    fileprivate func create(from block: TimeBlock?) {
-        let s = block.map { CycleSession.fitting(block: $0) } ?? CycleSession()
-        store.today.sessions.append(s)
-        selectedID = s.id
-        stage = 0
     }
 }
 
@@ -179,6 +213,18 @@ struct SessionView: View {
     @Binding var stage: Int
     let dateKey: String
     @EnvironmentObject var engine: CycleEngine
+    @EnvironmentObject var store: Store
+    @FocusState private var focus: Field?
+
+    /// Every keyboard stop in the three steps, so focus can be placed programmatically.
+    enum Field: Hashable {
+        case title, stage
+        case accomplish, important, complete, risks, measurable, other          // Prepare
+        case goal, startPlan, hazards, energy, morale                             // Plan
+        case target, noteworthy, distractions, improvements                       // Review
+        case nextGoal, nextStart, nextHazards, nextEnergy, nextMorale             // Plan the next cycle
+        case gotDone, compare, bogged, wentWell, takeaways, finished              // Debrief
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -186,21 +232,19 @@ struct SessionView: View {
                 TextField("Session title", text: $session.title)
                     .font(Theme.display(22)).foregroundColor(Theme.ink).textFieldStyle(.plain)
                     .frame(maxWidth: 520)
-                Picker("", selection: $stage) {
-                    Text("Prepare").tag(0)
-                    Text("Work").tag(1)
-                    Text("Debrief").tag(2)
-                }
-                .pickerStyle(.segmented).frame(width: 240)
+                    .focused($focus, equals: .title)
+                SegmentPicker(selection: $stage, options: [(value: 0, label: "Prepare"), (value: 1, label: "Work"), (value: 2, label: "Debrief")])
+                    .frame(width: 240)
+                    .focused($focus, equals: .stage)
                 Spacer()
             }
             .padding(.horizontal, Space.xl).padding(.top, Space.xl).padding(.bottom, Space.l)
             ScrollView {
                 Group {
                     switch stage {
-                    case 0: PrepareView(session: $session, onStart: { stage = 1 })
-                    case 1: WorkView(session: $session, dateKey: dateKey, onDebrief: { stage = 2 })
-                    default: DebriefView(session: $session)
+                    case 0: PrepareView(session: $session, focus: $focus)
+                    case 1: WorkView(session: $session, dateKey: dateKey, focus: $focus)
+                    default: DebriefView(session: $session, focus: $focus)
                     }
                 }
                 .padding(.horizontal, Space.xl).padding(.bottom, Space.xl)
@@ -209,6 +253,32 @@ struct SessionView: View {
             }
         }
         .background(Theme.paper)
+        .onChange(of: store.formFocusTick) { focusFirstField() }
+        .onChange(of: engine.phase) { followTimer() }
+    }
+
+    /// Land in the first field of the current step.
+    private func focusFirstField() {
+        switch stage {
+        case 0: set(.accomplish)
+        case 2: set(.gotDone)
+        default:
+            if engine.sessionID == session.id, engine.phase == .reviewing { set(.target) } else { set(.goal) }
+        }
+    }
+
+    /// The timer ended: the review (or the next plan) wants the keyboard.
+    private func followTimer() {
+        guard engine.sessionID == session.id, stage == 1 else { return }
+        switch engine.phase {
+        case .reviewing: set(.target)
+        case .planning: set(.goal)
+        default: break
+        }
+    }
+
+    private func set(_ f: Field) {
+        DispatchQueue.main.async { focus = f }
     }
 }
 
@@ -216,30 +286,33 @@ struct SessionView: View {
 
 struct PrepareView: View {
     @Binding var session: CycleSession
-    let onStart: () -> Void
+    var focus: FocusState<SessionView.Field?>.Binding
+    @EnvironmentObject var store: Store
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Take a few minutes to prepare, so that the next few hours are effective.")
                 .foregroundColor(Theme.inkFaint)
             HStack(spacing: Space.l) {
-                Stepper("\(session.cycleCount) cycles", value: $session.cycleCount, in: 1...12)
-                Stepper("of \(session.cycleMinutes) min", value: $session.cycleMinutes, in: 5...90, step: 5)
-                Stepper("\(session.breakMinutes)-min breaks", value: $session.breakMinutes, in: 1...30)
+                ValueStepper($session.cycleCount, in: 1...12) { "\($0) cycles" }
+                ValueStepper($session.cycleMinutes, in: 5...90, step: 5) { "of \($0) min" }
+                ValueStepper($session.breakMinutes, in: 1...30) { "\($0)-min breaks" }
                 Text("about \((session.cycleMinutes + session.breakMinutes) * session.cycleCount - session.breakMinutes) min")
                     .font(Theme.small).foregroundColor(Theme.inkFaint)
             }
-            .font(Theme.body)
 
-            WritingField("What am I trying to accomplish?", $session.accomplish)
-            WritingField("Why is this important and valuable?", $session.important)
-            WritingField("How will I know this is complete?", $session.complete)
-            WritingField("Any risks or hazards? Potential distractions, procrastination…", $session.risks)
-            WritingField("Is this concrete and measurable, or subjective and ambiguous?", $session.measurable)
-            WritingField("Anything else noteworthy?", $session.other)
+            WritingField("What am I trying to accomplish?", $session.accomplish, focus: focus, tag: .accomplish)
+            WritingField("Why is this important and valuable?", $session.important, focus: focus, tag: .important)
+            WritingField("How will I know this is complete?", $session.complete, focus: focus, tag: .complete)
+            WritingField("Any risks or hazards? Potential distractions, procrastination…", $session.risks, focus: focus, tag: .risks)
+            WritingField("Is this concrete and measurable, or subjective and ambiguous?", $session.measurable, focus: focus, tag: .measurable)
+            WritingField("Anything else noteworthy?", $session.other, focus: focus, tag: .other)
 
-            Button { onStart() } label: { Label("Ready. Plan the first cycle", systemImage: "arrow.right") }
-                .buttonStyle(InkButtonStyle())
+            HStack(spacing: Space.m) {
+                Button { SessionFlow.toPlan(store, session.id) } label: { Label("Ready. Plan the first cycle", systemImage: "arrow.right") }
+                    .buttonStyle(InkButtonStyle())
+                Text("⌘↩").font(TypeScale.caption).foregroundColor(Theme.inkFaint)
+            }
         }
     }
 }
@@ -250,13 +323,14 @@ struct PrepareView: View {
 struct WorkView: View {
     @Binding var session: CycleSession
     let dateKey: String
-    let onDebrief: () -> Void
+    var focus: FocusState<SessionView.Field?>.Binding
     @EnvironmentObject var engine: CycleEngine
+    @EnvironmentObject var store: Store
 
     private var isActiveSession: Bool { engine.sessionID == session.id }
     private var idx: Int { min(session.currentCycle, max(0, session.cycles.count - 1)) }
     private var phase: CycleEngine.Phase { isActiveSession ? engine.phase : .planning }
-    private var lastCycle: Bool { session.currentCycle >= session.cycleCount - 1 }
+    private var lastCycle: Bool { SessionFlow.isLast(session) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -276,14 +350,10 @@ struct WorkView: View {
             }
         }
         .onAppear(perform: ensureCycles)
-        .onChange(of: session.cycleCount) { _ in ensureCycles() }
+        .onChange(of: session.cycleCount) { ensureCycles() }
     }
 
-    private func ensureCycles() {
-        while session.cycles.count < session.cycleCount { session.cycles.append(WorkCycle()) }
-        if session.cycles.count > session.cycleCount { session.cycles.removeLast(session.cycles.count - session.cycleCount) }
-        if session.currentCycle >= session.cycleCount { session.currentCycle = session.cycleCount - 1 }
-    }
+    private func ensureCycles() { SessionFlow.ensureCycles(&session) }
 
     private var summaryStrip: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -316,27 +386,28 @@ struct WorkView: View {
                 Text("Planned before the break. Adjust if anything changed, then start.")
                     .font(Theme.small).foregroundColor(Theme.inkFaint)
             }
-            WritingField("What am I trying to accomplish this cycle?", cycle.goal)
-            WritingField("How will I get started?", cycle.startPlan)
-            WritingField("Any hazards present?", cycle.hazards)
+            WritingField("What am I trying to accomplish this cycle?", cycle.goal, focus: focus, tag: .goal)
+            WritingField("How will I get started?", cycle.startPlan, focus: focus, tag: .startPlan)
+            WritingField("Any hazards present?", cycle.hazards, focus: focus, tag: .hazards)
             HStack(spacing: 28) {
-                Rating("Energy", cycle.energy)
-                Rating("Morale", cycle.morale)
+                Rating("Energy", cycle.energy).focused(focus, equals: .energy)
+                Rating("Morale", cycle.morale).focused(focus, equals: .morale)
             }
             .padding(.vertical, 4)
-            HStack {
-                Button {
-                    engine.attach(sessionID: session.id, dateKey: dateKey)
-                    engine.startWork(minutes: session.cycleMinutes)
-                } label: { Label("Start cycle, \(session.cycleMinutes) min", systemImage: "play.fill") }
+            HStack(spacing: Space.m) {
+                Button { SessionFlow.startCycle(store, engine, session.id) } label: {
+                    Label("Start cycle, \(session.cycleMinutes) min", systemImage: "play.fill")
+                }
                 .buttonStyle(InkButtonStyle())
                 .disabled(engine.isRunning && !isActiveSession)
                 if engine.isRunning && !isActiveSession {
                     Text("Another session's timer is running.").font(Theme.small).foregroundColor(Theme.tasks)
+                } else {
+                    Text("⌘↩").font(TypeScale.caption).foregroundColor(Theme.inkFaint)
                 }
                 Spacer()
                 if session.currentCycle > 0 {
-                    Button("Skip to debrief") { onDebrief() }.buttonStyle(QuietButtonStyle())
+                    Button("Skip to debrief") { SessionFlow.toDebrief(store, engine, session.id) }.buttonStyle(QuietButtonStyle())
                 }
             }
         }
@@ -371,8 +442,8 @@ struct WorkView: View {
                 Text("Stand up. Water. Eyes off the screen.").font(Theme.body).foregroundColor(Theme.onField.opacity(0.8))
             }
             HStack(spacing: 10) {
-                fieldButton(engine.paused ? "Resume" : "Pause") { engine.togglePause() }
-                fieldButton(working ? "End cycle early" : "Skip break") { engine.endNow() }
+                Button(engine.paused ? "Resume  ⌘." : "Pause  ⌘.") { engine.togglePause() }.buttonStyle(FieldButtonStyle())
+                Button(working ? "End cycle early  ⇧⌘E" : "Skip break  ⇧⌘E") { engine.endNow() }.buttonStyle(FieldButtonStyle())
             }
             .padding(.top, 6)
         }
@@ -382,33 +453,13 @@ struct WorkView: View {
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
-    private func fieldButton(_ title: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title).font(.system(size: 12, weight: .medium)).foregroundColor(Theme.onField)
-                .padding(.horizontal, 14).padding(.vertical, 7)
-                .overlay(Capsule().stroke(Theme.onField.opacity(0.5), lineWidth: 1))
-        }
-        .buttonStyle(.plain)
-    }
-
     private func reviewPanel(cycle: Binding<WorkCycle>) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Review cycle \(session.currentCycle + 1)").font(Theme.display(20)).foregroundColor(Theme.ink)
-            HStack(spacing: 12) {
-                Text("Completed the cycle's target?").font(.system(size: 13, weight: .medium)).foregroundColor(Theme.ink)
-                ForEach(["Yes", "Half", "No"], id: \.self) { v in
-                    Button(v) { cycle.wrappedValue.completed = v }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(cycle.wrappedValue.completed == v ? .white : Theme.ink)
-                        .padding(.horizontal, 12).padding(.vertical, 5)
-                        .background(cycle.wrappedValue.completed == v ? Theme.deep : Theme.paperDeep)
-                        .clipShape(Capsule())
-                }
-            }
-            WritingField("Anything noteworthy?", cycle.noteworthy)
-            WritingField("Any distractions?", cycle.distractions)
-            WritingField("Things to improve for next cycle?", cycle.improvements)
+            TargetPicker(cycle.completed).focused(focus, equals: .target)
+            WritingField("Anything noteworthy?", cycle.noteworthy, focus: focus, tag: .noteworthy)
+            WritingField("Any distractions?", cycle.distractions, focus: focus, tag: .distractions)
+            WritingField("Things to improve for next cycle?", cycle.improvements, focus: focus, tag: .improvements)
 
             if !lastCycle, session.currentCycle + 1 < session.cycles.count {
                 let next = $session.cycles[session.currentCycle + 1]
@@ -416,29 +467,29 @@ struct WorkView: View {
                 Text("Plan cycle \(session.currentCycle + 2) before the break").font(Theme.display(18)).foregroundColor(Theme.ink)
                 Text("Decide now, while the context is warm, so the break is a real break and the next cycle starts on the timer.")
                     .font(Theme.small).foregroundColor(Theme.inkFaint)
-                WritingField("What am I trying to accomplish next cycle?", next.goal)
-                WritingField("How will I get started?", next.startPlan)
-                WritingField("Any hazards present?", next.hazards)
+                WritingField("What am I trying to accomplish next cycle?", next.goal, focus: focus, tag: .nextGoal)
+                WritingField("How will I get started?", next.startPlan, focus: focus, tag: .nextStart)
+                WritingField("Any hazards present?", next.hazards, focus: focus, tag: .nextHazards)
                 HStack(spacing: 28) {
-                    Rating("Energy", next.energy)
-                    Rating("Morale", next.morale)
+                    Rating("Energy", next.energy).focused(focus, equals: .nextEnergy)
+                    Rating("Morale", next.morale).focused(focus, equals: .nextMorale)
                 }
                 .padding(.vertical, 4)
             }
 
-            HStack {
+            HStack(spacing: Space.m) {
                 if lastCycle {
-                    Button { finishSession() } label: { Label("Finish and debrief", systemImage: "flag.checkered") }
+                    Button { SessionFlow.toDebrief(store, engine, session.id) } label: { Label("Finish and debrief", systemImage: "flag.checkered") }
                         .buttonStyle(InkButtonStyle())
                 } else {
-                    Button { advance(); engine.startBreak(minutes: session.breakMinutes) } label: {
+                    Button { SessionFlow.startBreak(store, engine, session.id) } label: {
                         Label("Start break, \(session.breakMinutes) min", systemImage: "cup.and.saucer")
                     }
                     .buttonStyle(InkButtonStyle(fill: Theme.breakC))
-                    Button("Skip break") { advance(); engine.stop(); engine.attach(sessionID: session.id, dateKey: dateKey) }
-                        .buttonStyle(QuietButtonStyle())
-                    Button("Stop here and debrief") { finishSession() }.buttonStyle(QuietButtonStyle())
+                    Button("Skip break") { SessionFlow.skipBreak(store, engine, session.id) }.buttonStyle(QuietButtonStyle())
+                    Button("Stop here and debrief") { SessionFlow.toDebrief(store, engine, session.id) }.buttonStyle(QuietButtonStyle())
                 }
+                Text("⌘↩").font(TypeScale.caption).foregroundColor(Theme.inkFaint)
             }
             .disabled(cycle.wrappedValue.completed.isEmpty)
             if cycle.wrappedValue.completed.isEmpty {
@@ -449,21 +500,13 @@ struct WorkView: View {
             }
         }
     }
-
-    private func advance() {
-        if session.currentCycle < session.cycleCount - 1 { session.currentCycle += 1 }
-    }
-
-    private func finishSession() {
-        engine.stop()
-        onDebrief()
-    }
 }
 
 // MARK: - 3. Debrief
 
 struct DebriefView: View {
     @Binding var session: CycleSession
+    var focus: FocusState<SessionView.Field?>.Binding
     @EnvironmentObject var engine: CycleEngine
     @EnvironmentObject var store: Store
 
@@ -490,22 +533,26 @@ struct DebriefView: View {
 
             Text("\(session.deepMinutes) minutes of deep work logged").font(Theme.display(18)).foregroundColor(Theme.deep)
 
-            WritingField("What did I get done these past few hours?", $session.gotDone)
-            WritingField("How did this compare to my normal work output?", $session.compare)
-            WritingField("Did I get bogged down? Where?", $session.boggedDown)
-            WritingField("What went well? How can I replicate this in the future?", $session.wentWell)
-            WritingField("Any other takeaways? Lessons to share with others?", $session.takeaways)
+            WritingField("What did I get done these past few hours?", $session.gotDone, focus: focus, tag: .gotDone)
+            WritingField("How did this compare to my normal work output?", $session.compare, focus: focus, tag: .compare)
+            WritingField("Did I get bogged down? Where?", $session.boggedDown, focus: focus, tag: .bogged)
+            WritingField("What went well? How can I replicate this in the future?", $session.wentWell, focus: focus, tag: .wentWell)
+            WritingField("Any other takeaways? Lessons to share with others?", $session.takeaways, focus: focus, tag: .takeaways)
 
-            Toggle("Session finished", isOn: $session.finished)
-                .toggleStyle(.switch)
-                .font(.system(size: 13, weight: .medium))
-                .onChange(of: session.finished) { done in
-                    if done {
-                        if engine.sessionID == session.id { engine.stop() }
-                        store.focusMode = false
-                    }
-                }
+            HStack(spacing: Space.m) {
+                Toggle("Session finished", isOn: finished)
+                    .toggleStyle(KeySwitchStyle())
+                    .font(.system(size: 13, weight: .medium))
+                    .focused(focus, equals: .finished)
+                Text("⌘↩").font(TypeScale.caption).foregroundColor(Theme.inkFaint)
+            }
         }
+    }
+
+    /// Flipping the switch is what finishes a session (stops the timer, leaves Focus);
+    /// merely looking at a finished one must not.
+    private var finished: Binding<Bool> {
+        Binding(get: { session.finished }, set: { SessionFlow.setFinished(store, engine, session.id, $0) })
     }
 
     private func row(_ label: String, _ value: @escaping (Int) -> String) -> some View {
@@ -517,27 +564,6 @@ struct DebriefView: View {
         }
     }
 }
-
-// MARK: - Small controls
-
-struct Rating: View {
-    let label: String
-    @Binding var value: Int
-    init(_ label: String, _ value: Binding<Int>) { self.label = label; self._value = value }
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Text(label).font(.system(size: 13, weight: .medium)).foregroundColor(Theme.ink)
-            ForEach(1...5, id: \.self) { i in
-                Circle()
-                    .fill(i <= value ? Theme.deep : Theme.deep.opacity(0.18))
-                    .frame(width: 14, height: 14)
-                    .onTapGesture { value = i }
-            }
-        }
-    }
-}
-
 
 // MARK: - Session pulse: energy and morale stacked on one axis, targets underneath
 

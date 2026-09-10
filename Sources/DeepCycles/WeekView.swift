@@ -262,18 +262,7 @@ struct ValuesTracker: View {
                         set: { new in var w = store.thisWeek; if let i = w.values.firstIndex(where: { $0.id == v.id }) { w.values[i].text = new; store.thisWeek = w } }
                     ))
                     .textFieldStyle(.plain).font(TypeScale.body).foregroundColor(Theme.ink)
-                    HStack(spacing: 3) {
-                        ForEach(days, id: \.self) { d in
-                            let on = store.valueDone(v.id, on: d)
-                            let future = d > Date()
-                            Circle()
-                                .fill(on ? Theme.breakC : Theme.ruleFaint)
-                                .frame(width: 11, height: 11)
-                                .opacity(future ? 0.4 : 1)
-                                .onTapGesture { if !future { store.setValueDone(v.id, on: d, !on) } }
-                                .help(d.formatted(.dateTime.weekday(.abbreviated)))
-                        }
-                    }
+                    DayDots(valueID: v.id, days: days)
                     Button { var w = store.thisWeek; w.values.removeAll { $0.id == v.id }; store.thisWeek = w } label: {
                         Image(systemName: "xmark").font(.system(size: 9, weight: .semibold)).foregroundColor(Theme.inkFaint)
                     }.buttonStyle(.plain)
@@ -296,4 +285,48 @@ struct ValuesTracker: View {
         .background(Theme.paper).clipShape(RoundedRectangle(cornerRadius: Radius.s, style: .continuous))
     }
     @State private var newValue = ""
+}
+
+/// One habit's seven day-dots. A Tab stop: ← → pick the day, Space ticks it; click works too.
+@MainActor
+private struct DayDots: View {
+    let valueID: UUID
+    let days: [Date]
+    @EnvironmentObject var store: Store
+    @FocusState private var focused: Bool
+    @State private var cursor: Int = 0
+
+    var body: some View {
+        HStack(spacing: 3) {
+            ForEach(Array(days.enumerated()), id: \.offset) { i, d in
+                let on = store.valueDone(valueID, on: d)
+                let future = d > Date()
+                Circle()
+                    .fill(on ? Theme.breakC : Theme.ruleFaint)
+                    .frame(width: 11, height: 11)
+                    .opacity(future ? 0.4 : 1)
+                    .overlay(Circle().stroke(Theme.focus, lineWidth: 1.5).opacity(focused && i == cursor ? 1 : 0))
+                    .onTapGesture { if !future { store.setValueDone(valueID, on: d, !on) } }
+                    .help(d.formatted(.dateTime.weekday(.abbreviated)))
+            }
+        }
+        .padding(.horizontal, 3).padding(.vertical, 2)
+        .focusRing(focused, shape: Capsule())
+        .focusable()
+        .focused($focused)
+        .focusEffectDisabled()
+        .onAppear { cursor = days.lastIndex(where: { $0 <= Date() }) ?? 0 }
+        .onKeyPress(.leftArrow) { cursor = max(0, cursor - 1); return .handled }
+        .onKeyPress(.rightArrow) { cursor = min(days.count - 1, cursor + 1); return .handled }
+        .onKeyPress(.space) { tick() }
+        .onKeyPress(.return) { tick() }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Days ticked")
+    }
+
+    private func tick() -> KeyPress.Result {
+        guard days.indices.contains(cursor), days[cursor] <= Date() else { return .ignored }
+        store.setValueDone(valueID, on: days[cursor], !store.valueDone(valueID, on: days[cursor]))
+        return .handled
+    }
 }

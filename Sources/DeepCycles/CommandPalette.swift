@@ -1,74 +1,24 @@
 import SwiftUI
 import AppKit
 
-struct PaletteCommand: Identifiable {
-    let id = UUID()
-    let title: String
-    let group: String
-    var shortcut: String = ""
-    let run: () -> Void
-}
-
 /// ⌘P: type a few letters, Enter. Everything the menus can do, plus jumps to
-/// documents, dates, blocks and sessions.
+/// documents, dates, blocks and sessions. The list comes from CommandCatalog.
 @MainActor
 struct CommandPalette: View {
     @EnvironmentObject var store: Store
     @EnvironmentObject var engine: CycleEngine
+    @Environment(\.openSettings) private var openSettings
     @State private var query = ""
     @State private var selection = 0
     @FocusState private var focused: Bool
     @State private var keyMonitor: Any? = nil
 
-    private var commands: [PaletteCommand] {
-        var c: [PaletteCommand] = []
-        func add(_ t: String, _ g: String, _ k: String = "", _ r: @escaping () -> Void) { c.append(PaletteCommand(title: t, group: g, shortcut: k, run: r)) }
-
-        add("Go to Day", "Go", "⌘1") { store.tab = 0; store.focusMode = false }
-        add("Go to Week", "Go", "⌘2") { store.tab = 1; store.focusMode = false }
-        add("Go to Systems", "Go", "⌘3") { store.tab = 2; store.focusMode = false }
-        add("Today", "Go", "⌘T") { store.selectedDate = Calendar.current.startOfDay(for: Date()) }
-        add("Tomorrow", "Go") { store.selectedDate = Calendar.current.date(byAdding: .day, value: 1, to: Calendar.current.startOfDay(for: Date()))! }
-        add("Yesterday", "Go") { store.selectedDate = Calendar.current.date(byAdding: .day, value: -1, to: Calendar.current.startOfDay(for: Date()))! }
-        add(store.focusMode ? "Leave focus" : "Focus (cycles)", "Go", "⇧⌘F") { store.focusMode.toggle() }
-        add("End day (shutdown)", "Go", "⇧⌘S") { store.showShutdown = true }
-
-        add("New block", "Day", "⌘N") { store.tab = 0; store.focusMode = false; store.pending = .newBlock }
-        add("Delete selected block", "Day", "⌫") { store.pending = .deleteBlock }
-        add("Capture to Collection", "Day", "⌘K") { store.tab = 0; store.focusMode = false; store.pending = .focusCollection }
-        add("Adopt calendar events as blocks", "Day", "⌘I") { store.tab = 0; store.pending = .importEvents }
-        add("Sync blocks to calendar now", "Day", "⇧⌘P") { store.tab = 0; store.pending = .pushPlan }
-        add("Move Collection to Tasks", "Day") { store.processCollection() }
-        add("Toggle shutdown complete", "Day") { store.today.shutdownComplete.toggle() }
-
-        for b in store.today.blocks where b.kind == .deep {
-            if let s = store.session(forBlock: b.id) {
-                add("Open cycles: \(b.title)", "Sessions", "\(s.cyclesDone)/\(s.cycleCount)") { engine.attach(sessionID: s.id, dateKey: store.selectedKey); store.focusMode = true }
-            } else {
-                add("Run cycles on: \(b.title)", "Sessions", b.start.shortTime) {
-                    let s = CycleSession.fitting(block: b); store.today.sessions.append(s)
-                    engine.attach(sessionID: s.id, dateKey: store.selectedKey); store.focusMode = true
-                }
-            }
-        }
-        add("Start cycle", "Cycle", "⌘↩") { store.focusMode = true; store.pending = .startCycle }
-        if engine.isRunning {
-            add(engine.paused ? "Resume timer" : "Pause timer", "Cycle", "⌘.") { engine.togglePause() }
-            add(engine.phase == .breaking ? "End break" : "End cycle early", "Cycle", "⇧⌘E") { engine.endNow() }
-        }
-
-        add("Root document", "Systems") { store.systemsPage = "root"; store.tab = 2; store.focusMode = false }
-        add("Weekly plan & values plan", "Systems") { store.tab = 1; store.focusMode = false }
-        for d in store.system.docs { add(d.title, "Systems") { store.systemsPage = d.kind.rawValue; store.tab = 2; store.focusMode = false } }
-        add("Disciplines", "Systems") { store.systemsPage = "disciplines"; store.tab = 2; store.focusMode = false }
-        add("Session log", "Systems") { store.systemsPage = "sessions"; store.tab = 2; store.focusMode = false }
-        add("Appearance: System", "Settings") { store.appearance = .system }
-        add("Appearance: Light", "Settings") { store.appearance = .light }
-        add("Appearance: Dark", "Settings") { store.appearance = .dark }
-        return c
+    private var commands: [AppCommand] {
+        CommandCatalog.commands(store: store, engine: engine, openSettings: { openSettings() })
+            .filter { $0.inPalette && $0.enabled }
     }
 
-    private var matches: [PaletteCommand] {
+    private var matches: [AppCommand] {
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
         let all = commands
         guard !q.isEmpty else { return all }
@@ -108,7 +58,7 @@ struct CommandPalette: View {
                                 Text(cmd.group).font(TypeScale.caption).foregroundColor(Theme.inkFaint).frame(width: 64, alignment: .leading)
                                 Text(cmd.title).font(TypeScale.body).foregroundColor(Theme.ink)
                                 Spacer()
-                                Text(cmd.shortcut).font(TypeScale.caption.monospacedDigit()).foregroundColor(Theme.inkFaint)
+                                Text(cmd.shortcut?.display ?? "").font(TypeScale.caption.monospacedDigit()).foregroundColor(Theme.inkFaint)
                                 if i < 9 { Text("⌘\(i + 1)").font(TypeScale.caption.monospacedDigit()).foregroundColor(Theme.inkFaint.opacity(0.6)).frame(width: 28, alignment: .trailing) }
                             }
                             .padding(.horizontal, Space.l).padding(.vertical, 7)
@@ -121,7 +71,7 @@ struct CommandPalette: View {
                     }
                     .padding(.vertical, Space.xs)
                 }
-                .onChange(of: selection) { proxy.scrollTo($0) }
+                .onChange(of: selection) { proxy.scrollTo(selection) }
             }
             .frame(maxHeight: 360)
         }
@@ -165,16 +115,16 @@ struct CommandPalette: View {
             }
         }
         .onDisappear { if let m = keyMonitor { NSEvent.removeMonitor(m) }; keyMonitor = nil }
-        .onChange(of: query) { _ in selection = 0 }
+        .onChange(of: query) { selection = 0 }
     }
 
-    private func move(_ delta: Int, in list: [PaletteCommand]) {
+    private func move(_ delta: Int, in list: [AppCommand]) {
         guard !list.isEmpty else { return }
         let n = min(list.count, 40)
         selection = (selection + delta + n) % n
     }
 
-    private func run(_ list: [PaletteCommand]) {
+    private func run(_ list: [AppCommand]) {
         guard !list.isEmpty else { return }
         let cmd = list[min(selection, list.count - 1)]
         store.showPalette = false

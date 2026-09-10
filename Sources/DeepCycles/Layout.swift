@@ -57,7 +57,7 @@ struct TaskList: View {
             }
             .padding(.vertical, 5).padding(.horizontal, Space.s)
         }
-        .onChange(of: focusRequest) { _ in addFocused = true }
+        .onChange(of: focusRequest) { addFocused = true }
     }
 
     private func add() {
@@ -77,12 +77,7 @@ struct TaskRow: View {
 
     var body: some View {
         HStack(spacing: Space.s) {
-            Button { item.done.toggle() } label: {
-                Image(systemName: item.done ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 14))
-                    .foregroundColor(item.done ? Theme.breakC : Theme.inkFaint)
-            }
-            .buttonStyle(.plain).frame(width: 16)
+            TaskCheck(done: $item.done)
             TextField("", text: $item.text)
                 .textFieldStyle(.plain).font(TypeScale.body)
                 .foregroundColor(item.done ? Theme.inkFaint : Theme.ink)

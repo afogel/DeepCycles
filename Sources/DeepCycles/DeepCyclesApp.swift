@@ -25,6 +25,13 @@ struct DeepCyclesApp: App {
         .windowStyle(.hiddenTitleBar)
         .commands { AppCommands(store: store, engine: engine) }
 
+        // ⌘, and the app menu's "Settings…" come with the scene.
+        Settings {
+            SettingsView()
+                .environmentObject(store)
+                .environmentObject(calendar)
+        }
+
         MenuBarExtra {
             MenuBarView()
                 .environmentObject(store)
@@ -111,12 +118,9 @@ struct DateBar: View {
             if engine.phase != .idle {
                 TimerPill()
             } else if !store.focusMode, let block = store.currentDeepBlock(now: now), store.session(forBlock: block.id) == nil {
-                Button {
-                    let s = CycleSession.fitting(block: block)
-                    store.today.sessions.append(s)
-                    engine.attach(sessionID: s.id, dateKey: store.selectedKey)
-                    store.focusMode = true
-                } label: { Label("Start cycles: \(block.title)", systemImage: "play.fill") }
+                Button { SessionFlow.runCycles(on: block, store, engine) } label: {
+                    Label("Start cycles: \(block.title)", systemImage: "play.fill")
+                }
                 .buttonStyle(QuietButtonStyle())
                 .help("This deep block is happening now and has no session yet")
             }
@@ -129,17 +133,8 @@ struct DateBar: View {
                 Image(systemName: "keyboard").foregroundColor(Theme.inkFaint)
             }
             .buttonStyle(.borderless)
+            .help("Keyboard shortcuts")
             .popover(isPresented: $showShortcuts) { ShortcutsSheet() }
-
-            Menu {
-                Picker("Appearance", selection: $store.appearance) {
-                    ForEach(Appearance.allCases) { a in Label(a.label, systemImage: a.symbol).tag(a) }
-                }
-                .pickerStyle(.inline)
-            } label: {
-                Image(systemName: store.appearance.symbol).foregroundColor(Theme.inkFaint)
-            }
-            .menuStyle(.borderlessButton).menuIndicator(.hidden).frame(width: 28)
         }
         .padding(.horizontal, 18).padding(.vertical, 10)
         .background(Theme.paperDeep)
@@ -149,51 +144,36 @@ struct DateBar: View {
     private func shift(_ days: Int) { store.shiftPeriod(days) }
 }
 
-// MARK: - Menus and hotkeys
+// MARK: - Menus and hotkeys (generated from CommandCatalog)
 
 struct AppCommands: Commands {
     @ObservedObject var store: Store
     @ObservedObject var engine: CycleEngine
 
     var body: some Commands {
-        CommandGroup(replacing: .undoRedo) {
-            Button("Undo") { store.undo() }.keyboardShortcut("z").disabled(!store.canUndo)
-            Button("Redo") { store.redo() }.keyboardShortcut("z", modifiers: [.command, .shift]).disabled(!store.canRedo)
-        }
-        CommandGroup(replacing: .newItem) {
-            Button("Command Palette…") { store.showPalette.toggle() }.keyboardShortcut("p")
-            Divider()
-            Button("New Block") { store.tab = 0; store.focusMode = false; store.pending = .newBlock }.keyboardShortcut("n")
-            Button("Delete Block") { store.pending = .deleteBlock }.keyboardShortcut(.delete, modifiers: [])
-            Button("Capture to Collection") { store.tab = 0; store.pending = .focusCollection }.keyboardShortcut("k")
-            Divider()
-            Button("Adopt Calendar Events as Blocks") { store.tab = 0; store.pending = .importEvents }.keyboardShortcut("i")
-            Button("Sync Blocks to Calendar Now") { store.tab = 0; store.pending = .pushPlan }.keyboardShortcut("p", modifiers: [.command, .shift])
-        }
-        CommandMenu("Go") {
-            Button("Day") { store.tab = 0; store.focusMode = false }.keyboardShortcut("1")
-            Button("Week") { store.tab = 1; store.focusMode = false }.keyboardShortcut("2")
-            Button("Systems") { store.tab = 2; store.focusMode = false }.keyboardShortcut("3")
-            Divider()
-            Button(store.focusMode ? "Leave Focus" : "Focus (Cycles)") { store.focusMode.toggle() }.keyboardShortcut("f", modifiers: [.command, .shift])
-            Button("End Day…") { store.showShutdown = true }.keyboardShortcut("s", modifiers: [.command, .shift])
-            Button("Tasks") { store.systemsPage = "tasks"; store.tab = 2; store.focusMode = false }.keyboardShortcut("t", modifiers: [.command, .shift])
-            Button("Session Log") { store.systemsPage = "sessions"; store.tab = 2; store.focusMode = false }.keyboardShortcut("l", modifiers: [.command, .shift])
-            Divider()
-            Button("Previous") { store.shiftPeriod(-1) }.keyboardShortcut("[")
-            Button("Next") { store.shiftPeriod(1) }.keyboardShortcut("]")
-            Button("Today") { store.selectedDate = Calendar.current.startOfDay(for: Date()) }.keyboardShortcut("t")
-        }
-        CommandMenu("Cycle") {
-            Button("Start Cycle") { store.focusMode = true; store.pending = .startCycle }
-                .keyboardShortcut(.return, modifiers: .command)
-                .disabled(engine.isRunning)
-            Button(engine.paused ? "Resume" : "Pause") { engine.togglePause() }
-                .keyboardShortcut(".", modifiers: .command)
-                .disabled(!engine.isRunning)
-            Button(engine.phase == .breaking ? "End Break" : "End Cycle Early") { engine.endNow() }
-                .keyboardShortcut("e", modifiers: [.command, .shift])
-                .disabled(!engine.isRunning)
+        let cmds = CommandCatalog.commands(store: store, engine: engine, openSettings: {})
+        CommandGroup(replacing: .undoRedo) { MenuItems(commands: cmds, place: .edit) }
+        CommandGroup(replacing: .newItem) { MenuItems(commands: cmds, place: .file) }
+        CommandMenu("Go") { MenuItems(commands: cmds, place: .go) }
+        CommandMenu("Cycle") { MenuItems(commands: cmds, place: .cycle) }
+    }
+}
+
+/// The catalogue's commands for one menu, with separators between sections.
+private struct MenuItems: View {
+    let commands: [AppCommand]
+    let place: MenuPlace
+
+    var body: some View {
+        let items = commands.filter { $0.menu == place }
+        let sections = Array(Set(items.map(\.section))).sorted()
+        ForEach(sections, id: \.self) { sec in
+            if sec != sections.first { Divider() }
+            ForEach(items.filter { $0.section == sec }) { c in
+                Button(c.title) { c.run() }
+                    .keyboardShortcut(c.shortcut)
+                    .disabled(!c.enabled)
+            }
         }
     }
 }
@@ -209,7 +189,7 @@ struct FocusView: View {
             HStack(spacing: Space.m) {
                 Button { store.focusMode = false } label: { Label("Back to day", systemImage: "chevron.left") }
                     .buttonStyle(.borderless).foregroundColor(Theme.inkFaint)
-                    .help("⇧⌘F")
+                    .help("⇧⌘F or ⎋")
                 Spacer()
             }
             .padding(.horizontal, Space.l).padding(.vertical, Space.s)
@@ -220,34 +200,33 @@ struct FocusView: View {
     }
 }
 
+/// ⌨ in the top bar: the shortcuts that exist, from the same catalogue as the menus.
+@MainActor
 struct ShortcutsSheet: View {
-    private let rows: [(String, String)] = [
-        ("⌘P", "Command palette — everything below, by name"),
-        ("⌘1  ⌘2  ⌘3", "Day · Week · Systems"),
-        ("⇧⌘T  ⇧⌘L", "Tasks · session log"),
-        ("⇧⌘F", "Focus mode (cycles) in / out"),
-        ("⇧⌘S", "End day (shutdown sheet)"),
-        ("⌘[  ⌘]  ⌘T", "Previous · next · today"),
-        ("⌘N   ⌫", "New time block · delete selected block"),
-        ("⌘Z   ⇧⌘Z", "Undo · redo block changes"),
-        ("⌘K", "Capture a thought to Collection"),
-        ("⌘I", "Adopt calendar events as blocks"),
-        ("⇧⌘P", "Sync blocks to calendar now"),
-        ("⌘↩", "Start the planned cycle"),
-        ("⌘.", "Pause / resume the timer"),
-        ("⇧⌘E", "End cycle or break early"),
-    ]
+    @EnvironmentObject var store: Store
+    @EnvironmentObject var engine: CycleEngine
+
     var body: some View {
+        let byID = Dictionary(uniqueKeysWithValues: CommandCatalog.commands(store: store, engine: engine, openSettings: {}).map { ($0.id, $0) })
         VStack(alignment: .leading, spacing: 8) {
             Text("Keyboard shortcuts").font(Theme.display(16)).foregroundColor(Theme.ink)
-            ForEach(rows, id: \.0) { r in
-                HStack(alignment: .firstTextBaseline) {
-                    Text(r.0).font(.system(size: 12, weight: .medium, design: .monospaced)).foregroundColor(Theme.deep).frame(width: 130, alignment: .leading)
-                    Text(r.1).font(Theme.small).foregroundColor(Theme.ink)
-                }
+            ForEach(CommandCatalog.sheetRows, id: \.text) { row in
+                let keys = row.ids.compactMap { byID[$0]?.shortcut?.display }.joined(separator: "  ")
+                line(keys, row.text)
             }
+            Divider().padding(.vertical, 4)
+            Text("In the forms").font(TypeScale.label).foregroundColor(Theme.ink)
+            ForEach(CommandCatalog.keyboardNotes, id: \.text) { note in line(note.keys, note.text) }
+            Text("Everything else is in the command palette, ⌘P.").font(TypeScale.caption).foregroundColor(Theme.inkFaint).padding(.top, 4)
         }
-        .padding(16).frame(width: 360).background(Theme.paper)
+        .padding(16).frame(width: 400).background(Theme.paper)
+    }
+
+    private func line(_ keys: String, _ text: String) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(keys).font(.system(size: 12, weight: .medium, design: .monospaced)).foregroundColor(Theme.deep).frame(width: 130, alignment: .leading)
+            Text(text).font(Theme.small).foregroundColor(Theme.ink)
+        }
     }
 }
 

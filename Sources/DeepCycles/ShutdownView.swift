@@ -18,7 +18,7 @@ struct ShutdownView: View {
             Text("End of day").font(Theme.display(22)).foregroundColor(Theme.ink)
             Text(store.selectedDate.formatted(.dateTime.weekday(.wide).day().month(.wide))).font(Theme.body).foregroundColor(Theme.inkFaint)
             Spacer()
-            Button("Close") { store.showShutdown = false }.buttonStyle(QuietButtonStyle()).keyboardShortcut(.cancelAction)
+            Button("Close  ⎋") { store.showShutdown = false }.buttonStyle(QuietButtonStyle()).keyboardShortcut(.cancelAction)
         }
         .padding(.horizontal, 28).padding(.vertical, 16)
         Divider()
@@ -100,10 +100,9 @@ struct ShutdownView: View {
                 .panel()
 
                 HStack(spacing: 14) {
-                    Toggle("", isOn: $store.today.shutdownComplete).toggleStyle(.switch).labelsHidden()
+                    Toggle("", isOn: shutdownComplete).toggleStyle(KeySwitchStyle()).labelsHidden()
                     Text("Shutdown complete").font(Theme.display(20)).foregroundColor(store.today.shutdownComplete ? Theme.breakC : Theme.ink)
                 }
-                .onChange(of: store.today.shutdownComplete) { done in if done { engine.stop() } }
 
                 if store.today.shutdownComplete {
                     Text("Done for the day. When work anxiety shows up tonight: you checked the box. Close the planner.")
@@ -118,6 +117,15 @@ struct ShutdownView: View {
         }
         .frame(width: 780, height: 720)
         .background(Theme.paper)
+        .onExitCommand { store.showShutdown = false }
+    }
+
+    /// Flipping the switch stops a running timer; merely opening the sheet on a completed day does not.
+    private var shutdownComplete: Binding<Bool> {
+        Binding(get: { store.today.shutdownComplete }, set: { done in
+            store.today.shutdownComplete = done
+            if done { engine.stop() }
+        })
     }
 
     private func hours(_ minutes: Int) -> String {
@@ -164,7 +172,7 @@ struct ShutdownView: View {
                 if !d.target.isEmpty { Text("/ \(d.target)").font(Theme.small).foregroundColor(Theme.inkFaint) }
             } else {
                 Toggle("", isOn: Binding(get: { value.wrappedValue == "1" }, set: { value.wrappedValue = $0 ? "1" : "0" }))
-                    .toggleStyle(.switch).labelsHidden()
+                    .toggleStyle(KeySwitchStyle()).labelsHidden()
             }
         }
     }

@@ -108,50 +108,75 @@ extension View {
 }
 
 /// Solid button used for the one primary action on a screen.
-struct InkButtonStyle: ButtonStyle {
+/// Like every button style here it is a Tab stop; Space or Return presses it (see Controls.swift).
+struct InkButtonStyle: PrimitiveButtonStyle {
     var fill: Color = Theme.deep
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 13, weight: .semibold))
-            .foregroundColor(.white)
-            .padding(.horizontal, 14).padding(.vertical, 8)
-            .background(fill.opacity(configuration.isPressed ? 0.75 : 1))
-            .clipShape(Capsule())
+        KeyButton(configuration: configuration, shape: Capsule()) { pressed in
+            configuration.label
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(.white)
+                .padding(.horizontal, 14).padding(.vertical, 8)
+                .background(fill.opacity(pressed ? 0.75 : 1))
+                .clipShape(Capsule())
+        }
     }
 }
 
 /// Quiet outlined button for secondary actions.
-struct QuietButtonStyle: ButtonStyle {
+struct QuietButtonStyle: PrimitiveButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 12, weight: .medium))
-            .foregroundColor(Theme.ink)
-            .padding(.horizontal, 12).padding(.vertical, 6)
-            .background(Theme.paper.opacity(configuration.isPressed ? 0.6 : 1))
-            .overlay(Capsule().stroke(Theme.rule, lineWidth: 1))
-            .clipShape(Capsule())
+        KeyButton(configuration: configuration, shape: Capsule()) { pressed in
+            configuration.label
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(Theme.ink)
+                .padding(.horizontal, 12).padding(.vertical, 6)
+                .background(Theme.paper.opacity(pressed ? 0.6 : 1))
+                .overlay(Capsule().stroke(Theme.rule, lineWidth: 1))
+                .clipShape(Capsule())
+        }
     }
 }
 
 /// A plain multi-line field that sits on the paper like a writing line.
-struct WritingField: View {
+/// Pass `focus`/`tag` when the owning form places focus programmatically.
+struct WritingField<F: Hashable>: View {
     let prompt: String
     @Binding var text: String
     var lines: ClosedRange<Int> = 1...4
-    init(_ prompt: String, _ text: Binding<String>, lines: ClosedRange<Int> = 1...4) {
-        self.prompt = prompt; self._text = text; self.lines = lines
+    var focus: FocusState<F?>.Binding? = nil
+    var tag: F? = nil
+    @FocusState private var editing: Bool
+
+    init(_ prompt: String, _ text: Binding<String>, lines: ClosedRange<Int> = 1...4, focus: FocusState<F?>.Binding, tag: F) {
+        self.prompt = prompt; self._text = text; self.lines = lines; self.focus = focus; self.tag = tag
     }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             Text(prompt).font(.system(size: 13, weight: .medium)).foregroundColor(Theme.ink)
-            TextField("", text: $text, axis: .vertical)
+            field
                 .lineLimit(lines)
                 .textFieldStyle(.plain)
                 .font(Theme.body)
                 .padding(.horizontal, 10).padding(.vertical, 7)
                 .background(Theme.paperDeep)
                 .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(editing ? Theme.focus.opacity(0.7) : Color.clear, lineWidth: 1.5))
         }
+    }
+
+    @ViewBuilder
+    private var field: some View {
+        let base = TextField("", text: $text, axis: .vertical).focused($editing)
+        if let focus, let tag { base.focused(focus, equals: tag) } else { base }
+    }
+}
+
+extension WritingField where F == Never {
+    init(_ prompt: String, _ text: Binding<String>, lines: ClosedRange<Int> = 1...4) {
+        self.prompt = prompt; self._text = text; self.lines = lines
     }
 }
 

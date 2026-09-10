@@ -14,7 +14,7 @@ your Google / iCloud / Exchange calendars).
 
 ## Install (about 2 minutes)
 
-Requirements: macOS 13 or newer and the Xcode Command Line Tools.
+Requirements: macOS 14 or newer and the Xcode Command Line Tools.
 
 ```bash
 xcode-select --install        # once, if you don't have it already (skip if it says "already installed")
@@ -65,18 +65,37 @@ the Collection box was processed into Tasks, that tomorrow has a deep block, and
 that every discipline is logged. Disciplines are the metric codes (DW, EX, CC…)
 that get a value every day; the Systems tab shows a 14-day streak grid.
 
-## Keyboard shortcuts
+## Keyboard
 
-    ⌘P            command palette (everything below, by name)
-    ⌘1 ⌘2 ⌘3      Day · Week · Systems       ⇧⌘F   focus mode in / out
-    ⇧⌘T  ⇧⌘L     tasks · session log
-    ⌘[  ⌘]  ⌘T    previous · next · today     ⇧⌘S   end day (shutdown sheet)
-    ⌘N   ⌫        new block · delete block    ⌘K    capture to Collection
-    ⌘I            adopt events as blocks      ⇧⌘P   sync blocks now
-    ⌘↩            start the planned cycle     ⌘.    pause / resume
-    ⇧⌘E           end cycle or break
+The app is built to be driven from the keyboard. Only the things you do many times a
+day have a shortcut; everything else is one ⌘P away, by name.
 
-Click the keyboard icon in the top bar for the same list in-app. These work while
+    ⌘P            command palette (everything, by name)
+    ⌘,            settings: appearance, default hours, calendar sync
+    ⌘1 ⌘2 ⌘3      Day · Week · Systems         ⇧⌘F  ⎋   focus mode in · out
+    ⌘[  ⌘]  ⌘T    previous · next · today
+    ⌘N   ⌘⌫       new block · delete block     ⌘Z ⇧⌘Z   undo · redo
+    ⌘K            capture to Collection
+    ⇧⌘N           new session for the next deep block
+    ⌘↩            next step: plan → start cycle → start break → debrief
+    ⌘.   ⇧⌘E      pause / resume · end cycle or break early
+
+Inside the forms:
+
+    ⇥  ⇧⇥         move between fields and controls (buttons and switches included)
+    ␣             press the focused button, switch or checkbox
+    ↑↓  ←→        move in lists, pickers, steppers and ratings
+    1–5  Y H N    rate energy / morale · answer "did you hit the target?"
+    ↩  ⌫          in the session list and the day grid: open · delete
+
+Focus mode, all on the keyboard: ⇧⌘N makes a session for the next deep block and puts
+you in the first Prepare question. ⌘↩ moves to planning the first cycle, then starts
+it. When the timer ends the target question has focus: Y, H or N, then ⌘↩ starts the
+break. After the last cycle ⌘↩ opens the debrief, and once more marks the session
+finished. Tab reaches the session list (↑↓ to switch sessions), the stage picker
+(←→), every question, both ratings and every button.
+
+Click the keyboard icon in the top bar for this list in-app. Shortcuts work while
 DeepCycles is the front app; the menu-bar timer is the control surface when it isn't.
 
 ## Daily use
@@ -87,8 +106,9 @@ DeepCycles is the front app; the menu-bar timer is the control surface when it i
 2. Drag across the hours you want to block (or ⌘N), name the block, pick its kind.
    Drag a block to move it; drag its bottom edge to resize. Overlapping items sit
    side by side. A task block lets you tick open tasks into it.
-3. Blocks sync to your calendar automatically (footer shows the target; gear icon to
-   change it, create a dedicated "Time Blocks" calendar, or turn sync off).
+3. Blocks sync to your calendar automatically. Settings (⌘,) picks the target
+   calendar, creates a dedicated "Time Blocks" calendar, or turns sync off; the gear
+   in the Day footer changes that day's hours and syncs or adopts events now.
 4. When the day breaks, edit the blocks; the calendar follows.
 
 **Deep block — Focus**
@@ -119,12 +139,19 @@ Stray thoughts during a block go in *Collection* (⌘K) as checkable items; at s
 `~/Library/Application Support/DeepCycles/plans.json` — one entry per day, and `system.json` for the core documents, weekly plans and disciplines. Plain JSON.
 
 ## Files
-- `Sources/DeepCycles/Models.swift`         data model + JSON persistence
+- `Sources/DeepCycles/Models.swift`         data model + JSON persistence (`Store`)
 - `Sources/DeepCycles/CalendarService.swift` EventKit read/write
 - `Sources/DeepCycles/CycleEngine.swift`     timer state machine + notifications
+- `Sources/DeepCycles/SessionFlow.swift`     the session's steps (⌘↩), shared by buttons, menus, palette
+- `Sources/DeepCycles/CommandCatalog.swift`  every command and shortcut, once; menus, palette and ⌨ sheet read it
 - `Sources/DeepCycles/PlannerView.swift`     time-block grid and editor
-- `Sources/DeepCycles/CyclesView.swift`      Prepare / Work / Debrief
+- `Sources/DeepCycles/CyclesView.swift`      Focus: session list, Prepare / Work / Debrief
 - `Sources/DeepCycles/ShutdownView.swift`    disciplines, metrics and shutdown ritual
 - `Sources/DeepCycles/SystemsView.swift`     root document, core docs, weekly plan, disciplines
+- `Sources/DeepCycles/SettingsView.swift`    ⌘, — appearance, default hours, calendar
+- `Sources/DeepCycles/Controls.swift`        keyboard-first controls: focus ring, switch, segments, stepper, rating
 - `Sources/DeepCycles/Theme.swift`          palette (light + calm dark), type, button styles
 - `Resources/Info.plist`, `build.sh`
+
+Set `DEEPCYCLES_DATA_DIR=/some/folder` to run against scratch data instead of
+`~/Library/Application Support/DeepCycles`.

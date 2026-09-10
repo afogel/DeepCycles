@@ -21,6 +21,12 @@ struct SystemsView: View {
         }
     }
     @State private var page: Page = .week
+    @FocusState private var sidebarFocused: Bool
+
+    /// Sidebar order, for ↑ / ↓.
+    private var pages: [Page] {
+        [.week, .root] + CoreDoc.Kind.allCases.map { Page.doc($0) } + [.disciplines, .sessions]
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -63,6 +69,19 @@ struct SystemsView: View {
             overhaulNudge
         }
         .padding(14)
+        // One Tab stop; ↑ ↓ change the page.
+        .focusable()
+        .focused($sidebarFocused)
+        .focusEffectDisabled()
+        .onKeyPress(.upArrow) { step(-1) }
+        .onKeyPress(.downArrow) { step(1) }
+        .accessibilityLabel("Systems pages")
+    }
+
+    private func step(_ d: Int) -> KeyPress.Result {
+        let i = pages.firstIndex(of: page) ?? 0
+        page = pages[max(0, min(pages.count - 1, i + d))]
+        return .handled
     }
 
     private func group<C: View>(_ title: String, @ViewBuilder _ content: () -> C) -> some View {
@@ -74,13 +93,14 @@ struct SystemsView: View {
     }
 
     private func item(_ title: String, _ p: Page, sub: String) -> some View {
-        SidebarItem(title: title, sub: sub, selected: page == p) { page = p }
+        SidebarItem(title: title, sub: sub, selected: page == p, keyboard: sidebarFocused && page == p) { page = p; sidebarFocused = true }
     }
 
     private struct SidebarItem: View {
         let title: String
         let sub: String
         let selected: Bool
+        let keyboard: Bool
         let action: () -> Void
         @State private var hover = false
         var body: some View {
@@ -92,6 +112,7 @@ struct SystemsView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(selected ? Theme.paper : (hover ? Theme.paper.opacity(0.5) : Color.clear))
             .clipShape(RoundedRectangle(cornerRadius: Radius.s, style: .continuous))
+            .focusRing(keyboard, shape: RoundedRectangle(cornerRadius: Radius.s, style: .continuous))
             .contentShape(Rectangle())          // the whole row is the target, not just the text
             .onTapGesture(perform: action)
             .onHover { hover = $0 }
@@ -254,10 +275,8 @@ struct SystemsView: View {
                         TextField("Discipline, e.g. Deep work hours", text: $d.name)
                             .textFieldStyle(.plain).font(Theme.body)
                             .padding(7).background(Theme.paper).clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                        Picker("", selection: $d.isNumber) {
-                            Text("Did it").tag(false)
-                            Text("Number").tag(true)
-                        }.pickerStyle(.segmented).frame(width: 130).labelsHidden()
+                        SegmentPicker(selection: $d.isNumber, options: [(value: false, label: "Did it"), (value: true, label: "Number")])
+                            .frame(width: 130)
                         if d.isNumber {
                             TextField("target", text: $d.target)
                                 .textFieldStyle(.plain).font(Theme.body).multilineTextAlignment(.trailing)
@@ -340,6 +359,7 @@ struct SystemsView: View {
         let onDelete: () -> Void
         @State private var open = false
         @State private var hover = false
+        @FocusState private var focused: Bool
 
         var body: some View {
             VStack(alignment: .leading, spacing: Space.s) {
@@ -374,9 +394,16 @@ struct SystemsView: View {
             .padding(Space.m)
             .background(hover || open ? Theme.paperDeep : Theme.paperDeep.opacity(0.5))
             .clipShape(RoundedRectangle(cornerRadius: Radius.m, style: .continuous))
+            .focusRing(focused, shape: RoundedRectangle(cornerRadius: Radius.m, style: .continuous))
             .contentShape(Rectangle())
             .onTapGesture { open.toggle() }
             .onHover { hover = $0 }
+            // A Tab stop: Space or Return opens / closes the details.
+            .focusable()
+            .focused($focused)
+            .focusEffectDisabled()
+            .onKeyPress(.space) { open.toggle(); return .handled }
+            .onKeyPress(.return) { open.toggle(); return .handled }
         }
 
         private func note(_ label: String, _ text: String) -> some View {

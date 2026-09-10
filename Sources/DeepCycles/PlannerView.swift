@@ -15,7 +15,9 @@ struct PlannerView: View {
     @FocusState private var focus: Field?
     @State private var captureFocus = 0
     @State private var draftPlaced = false      // the new-block slot is being configured, so show it on the grid
-    enum Field { case title, collection }
+    @Environment(\.openSettings) private var openSettings
+    /// Keyboard stops the planner places itself: the title field, and the grid (↑↓ select, ↩ edit, ⌫ delete).
+    enum Field { case title, grid }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -29,31 +31,38 @@ struct PlannerView: View {
                     selectedID: editingID,
                     draft: editingID != nil || draftPlaced ? draft : nil,
                     editingID: editingID,
+                    focus: $focus,
                     onTapBlock: { select($0) },
                     onTapGhost: { adopt($0) },
                     onCreate: { start, end in newDraft(start: start, end: end, placed: true); focus = .title },
                     onMoveResize: { id, start, end in moveResize(id, start: start, end: end) },
+                    onMoveSelection: { moveSelection($0) },
+                    onEdit: { focus = .title },
                     onDelete: { deleteEditing() }
                 )
                 inspector.frame(width: 320)
         }
-        .onAppear { reloadCalendar(); newDraft(start: defaultStart(), end: nil) }
-        .onChange(of: store.selectedDate) { _ in reloadCalendar(); editingID = nil; newDraft(start: defaultStart(), end: nil) }
-        .onChange(of: draft) { _ in if editingID == nil { draftPlaced = true } }
-        .onChange(of: calendar.authorized) { _ in reloadCalendar() }
-        .onChange(of: store.pending) { cmd in
-            guard let cmd else { return }
-            switch cmd {
-            case .newBlock: editingID = nil; newDraft(start: defaultStart(), end: nil); draftPlaced = true; focus = .title
-            case .deleteBlock: deleteEditing()
-            case .focusCollection: captureFocus += 1
-            case .importEvents: adoptAll()
-            case .pushPlan: syncAll()
-            case .reconcileCalendar: reconcile()
-            default: return
-            }
-            store.pending = nil
+        .onAppear { reloadCalendar(); newDraft(start: defaultStart(), end: nil); handlePending() }
+        .onChange(of: store.selectedDate) { reloadCalendar(); editingID = nil; newDraft(start: defaultStart(), end: nil) }
+        .onChange(of: draft) { if editingID == nil { draftPlaced = true } }
+        .onChange(of: calendar.authorized) { reloadCalendar() }
+        .onChange(of: store.pending) { handlePending() }
+    }
+
+    /// Menu / palette commands this page carries out. Also run on appear, for a command
+    /// posted while another page was showing.
+    private func handlePending() {
+        guard let cmd = store.pending else { return }
+        switch cmd {
+        case .newBlock: editingID = nil; newDraft(start: defaultStart(), end: nil); draftPlaced = true; focus = .title
+        case .deleteBlock: deleteEditing()
+        case .focusCollection: captureFocus += 1
+        case .importEvents: adoptAll()
+        case .pushPlan: syncAll()
+        case .reconcileCalendar: reconcile()
+        default: return
         }
+        store.pending = nil
     }
 
     // MARK: Inspector (the sidebar is an inspector for the selected block, not a form)
@@ -119,12 +128,13 @@ struct PlannerView: View {
                 Text(editingID == nil ? "New block" : "Block").font(TypeScale.title).foregroundColor(Theme.ink)
                 Spacer()
                 if editingID != nil {
-                    Button("Delete  ⌫") { deleteEditing() }.buttonStyle(QuietButtonStyle())
+                    Button("Delete  ⌘⌫") { deleteEditing() }.buttonStyle(QuietButtonStyle())
                 }
             }
 
             TextField("What will you do?", text: $draft.title)
                 .focused($focus, equals: .title)
+                .onSubmit(submitDraft)
                 .textFieldStyle(.plain).font(.system(size: 15, weight: .medium))
                 .padding(.horizontal, Space.m).padding(.vertical, Space.s)
                 .background(Theme.paper)
@@ -132,11 +142,7 @@ struct PlannerView: View {
                 .overlay(RoundedRectangle(cornerRadius: Radius.s, style: .continuous)
                     .stroke(focus == .title ? Theme.deep : Color.clear, lineWidth: 1.5))
 
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Space.s), count: 3), spacing: Space.s) {
-                ForEach(BlockKind.allCases) { k in
-                    KindChip(kind: k, selected: draft.kind == k) { draft.kind = k }
-                }
-            }
+            KindPicker(kind: $draft.kind)
 
             HStack(spacing: Space.s) {
                 DatePicker("", selection: $draft.start, displayedComponents: .hourAndMinute).labelsHidden()
@@ -145,14 +151,7 @@ struct PlannerView: View {
                 Text("· \(draft.minutes) min").font(TypeScale.caption).foregroundColor(Theme.inkFaint)
                 Spacer()
             }
-            HStack(spacing: Space.xs) {
-                ForEach([30, 60, 90, 120, 150, 190], id: \.self) { m in
-                    Button("\(m)") { draft.end = draft.start.addingTimeInterval(TimeInterval(m * 60)) }
-                        .buttonStyle(PresetStyle(selected: draft.minutes == m))
-                        .fixedSize()
-                }
-                Text("min").font(TypeScale.caption).foregroundColor(Theme.inkFaint)
-            }
+            DurationPresets(draft: $draft)
             if draft.kind == .deep {
                 let fit = CycleSession.fitting(block: draft)
                 Text("\(fit.cycleCount) cycle\(fit.cycleCount == 1 ? "" : "s") of \(fit.cycleMinutes) min")
@@ -164,30 +163,35 @@ struct PlannerView: View {
             } else if draft.kind == .deep, !store.thisWeek.outcomes.filter({ !$0.done }).isEmpty {
                 outcomePicker
                 TextField("Notes", text: $draft.notes, axis: .vertical)
+                    .onSubmit(submitDraft)
                     .lineLimit(1...3).textFieldStyle(.plain).font(TypeScale.body)
                     .padding(.horizontal, Space.m).padding(.vertical, Space.s)
                     .background(Theme.paper)
                     .clipShape(RoundedRectangle(cornerRadius: Radius.s, style: .continuous))
             } else {
                 TextField("Notes", text: $draft.notes, axis: .vertical)
+                    .onSubmit(submitDraft)
                     .lineLimit(1...4).textFieldStyle(.plain).font(TypeScale.body)
                     .padding(.horizontal, Space.m).padding(.vertical, Space.s)
                     .background(Theme.paper)
                     .clipShape(RoundedRectangle(cornerRadius: Radius.s, style: .continuous))
             }
 
-            Button(editingID == nil ? "Add block" : "Save") { commitDraft() }
-                .buttonStyle(InkButtonStyle())
-                .keyboardShortcut(.defaultAction)
-                .disabled(draft.title.trimmingCharacters(in: .whitespaces).isEmpty)
+            HStack(spacing: Space.m) {
+                Button(editingID == nil ? "Add block" : "Save") { commitDraft() }
+                    .buttonStyle(InkButtonStyle())
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(draft.title.trimmingCharacters(in: .whitespaces).isEmpty)
+                Text("↩").font(TypeScale.caption).foregroundColor(Theme.inkFaint)
+            }
 
             if let id = editingID, draft.kind == .deep {
                 if let s = store.session(forBlock: id) {
                     Button("Cycles: \(s.cyclesDone) of \(s.cycleCount) done, \(s.deepMinutes) min") {
-                        engine.attach(sessionID: s.id, dateKey: store.selectedKey); store.focusMode = true
+                        SessionFlow.open(store, engine, s)
                     }.buttonStyle(QuietButtonStyle())
                 } else {
-                    Button("Run work cycles on this block") { startCycles(on: draft) }.buttonStyle(QuietButtonStyle())
+                    Button("Run work cycles on this block") { SessionFlow.runCycles(on: draft, store, engine) }.buttonStyle(QuietButtonStyle())
                 }
             }
         }
@@ -204,17 +208,7 @@ struct PlannerView: View {
             } else {
                 Text("Tasks in this block").font(TypeScale.caption).foregroundColor(Theme.inkFaint)
                 ForEach(open) { t in
-                    let on = draft.taskIDs.contains(t.id)
-                    Button {
-                        if on { draft.taskIDs.removeAll { $0 == t.id } } else { draft.taskIDs.append(t.id) }
-                    } label: {
-                        HStack(spacing: Space.s) {
-                            Image(systemName: on ? "checkmark.square.fill" : "square").foregroundColor(on ? Theme.tasks : Theme.inkFaint)
-                            Text(t.text).font(TypeScale.body).foregroundColor(Theme.ink).lineLimit(1)
-                            Spacer()
-                        }
-                    }
-                    .buttonStyle(.plain)
+                    CheckRow(text: t.text, on: draft.taskIDs.contains(t.id), tint: Theme.tasks) { toggleTask(t.id) }
                 }
             }
         }
@@ -226,19 +220,14 @@ struct PlannerView: View {
         VStack(alignment: .leading, spacing: Space.xs) {
             Text("Advances this week's outcome").font(TypeScale.caption).foregroundColor(Theme.inkFaint)
             ForEach(store.thisWeek.outcomes.filter { !$0.done }) { t in
-                let on = draft.taskIDs.contains(t.id)
-                Button {
-                    if on { draft.taskIDs.removeAll { $0 == t.id } } else { draft.taskIDs.append(t.id) }
-                } label: {
-                    HStack(spacing: Space.s) {
-                        Image(systemName: on ? "checkmark.square.fill" : "square").foregroundColor(on ? Theme.deep : Theme.inkFaint)
-                        Text(t.text).font(TypeScale.body).foregroundColor(Theme.ink).lineLimit(1)
-                        Spacer()
-                    }
-                }.buttonStyle(.plain)
+                CheckRow(text: t.text, on: draft.taskIDs.contains(t.id)) { toggleTask(t.id) }
             }
         }
         .padding(.vertical, Space.xs)
+    }
+
+    private func toggleTask(_ id: UUID) {
+        if draft.taskIDs.contains(id) { draft.taskIDs.removeAll { $0 == id } } else { draft.taskIDs.append(id) }
     }
 
     private var collection: some View {
@@ -294,40 +283,36 @@ struct PlannerView: View {
         (calendar.autoSync ? "Syncing to \(calendar.targetCalendar?.title ?? "calendar")" : "Calendar sync is off")
     }
 
+    /// This day's hours and calendar actions. Appearance, default hours and sync live in Settings (⌘,).
     private var settings: some View {
         VStack(alignment: .leading, spacing: Space.m) {
-            Text("Day settings").font(TypeScale.title).foregroundColor(Theme.ink)
-            HStack {
-                Stepper("From \(store.today.workStartHour):00", value: $store.today.workStartHour, in: 0...22)
-                Stepper("to \(store.today.workEndHour):00", value: $store.today.workEndHour, in: 1...23)
+            Text("This day").font(TypeScale.title).foregroundColor(Theme.ink)
+            HStack(spacing: Space.l) {
+                ValueStepper($store.today.workStartHour, in: 0...22) { "From \($0):00" }
+                ValueStepper($store.today.workEndHour, in: 1...23) { "to \($0):00" }
             }
-            .font(TypeScale.body)
-            .onChange(of: store.today.workStartHour) { v in if store.today.workEndHour <= v { store.today.workEndHour = v + 1 } }
-            .onChange(of: store.today.workEndHour) { v in if store.today.workStartHour >= v { store.today.workStartHour = v - 1 } }
+            .onChange(of: store.today.workStartHour) {
+                if store.today.workEndHour <= store.today.workStartHour { store.today.workEndHour = store.today.workStartHour + 1 }
+            }
+            .onChange(of: store.today.workEndHour) {
+                if store.today.workStartHour >= store.today.workEndHour { store.today.workStartHour = store.today.workEndHour - 1 }
+            }
+            Text("New days use the hours from Settings.").font(TypeScale.caption).foregroundColor(Theme.inkFaint)
 
             Divider()
-            Text("Calendar").font(TypeScale.label).foregroundColor(Theme.ink)
-            if calendar.authorized {
-                Toggle("Sync blocks to the calendar automatically", isOn: $calendar.autoSync).font(TypeScale.body)
-                Picker("Write to", selection: $calendar.targetCalendarID) {
-                    ForEach(calendar.calendars.filter { $0.allowsContentModifications }, id: \.calendarIdentifier) { c in
-                        Text(c.title).tag(c.calendarIdentifier)
-                    }
-                }.font(TypeScale.body)
-                if !calendar.calendars.contains(where: { $0.title == "Time Blocks" }) {
-                    Button("Create a “Time Blocks” calendar") { calendar.createTimeBlocksCalendar() }.buttonStyle(QuietButtonStyle())
-                }
-                HStack {
+            Text(syncHelp).font(TypeScale.caption).foregroundColor(Theme.inkFaint)
+            if let err = calendar.lastError {
+                Text(err).font(TypeScale.caption).foregroundColor(Theme.nowLine).fixedSize(horizontal: false, vertical: true)
+            }
+            HStack {
+                if calendar.authorized {
                     Button("Sync now") { syncAll() }.buttonStyle(QuietButtonStyle())
-                    Button("Adopt all events as blocks") { adoptAll() }.buttonStyle(QuietButtonStyle())
+                    Button("Adopt all events") { adoptAll() }.buttonStyle(QuietButtonStyle())
+                } else {
+                    Button("Retry access") { Task { await calendar.requestAccess() } }.buttonStyle(QuietButtonStyle())
                 }
-                if let on = calendar.createdOn { Text("“Time Blocks” created on \(on).").font(TypeScale.caption).foregroundColor(Theme.breakC) }
-                if let err = calendar.lastError {
-                    Text(err).font(TypeScale.caption).foregroundColor(Theme.nowLine).fixedSize(horizontal: false, vertical: true)
-                }
-            } else {
-                Text(calendar.lastError ?? "Requesting calendar access…").font(TypeScale.caption).foregroundColor(Theme.inkFaint)
-                Button("Retry access") { Task { await calendar.requestAccess() } }.buttonStyle(QuietButtonStyle())
+                Spacer()
+                Button("Settings…  ⌘,") { showSettings = false; openSettings() }.buttonStyle(QuietButtonStyle())
             }
         }
         .padding(Space.l).frame(width: 380).background(Theme.paper)
@@ -355,9 +340,17 @@ struct PlannerView: View {
     }
 
     private func select(_ block: TimeBlock) {
-        focus = nil            // so ⌫ deletes the block, not the text in a field
+        focus = .grid          // the grid takes the keyboard: ⌫ deletes the block, ↑↓ move, ↩ edits the title
         editingID = block.id
         draft = block
+    }
+
+    /// ↑ / ↓ on the grid: step through the day's blocks in time order.
+    private func moveSelection(_ d: Int) {
+        let blocks = store.today.blocks.sorted { $0.start < $1.start }
+        guard !blocks.isEmpty else { return }
+        let i = blocks.firstIndex { $0.id == editingID } ?? (d > 0 ? -1 : blocks.count)
+        select(blocks[max(0, min(blocks.count - 1, i + d))])
     }
 
     /// Turn a ghosted calendar event into a real block (a meeting) in one click.
@@ -376,6 +369,13 @@ struct PlannerView: View {
             store.today.blocks.append(g)
         }
         store.today.blocks.sort { $0.start < $1.start }
+    }
+
+    /// Return in the title or notes field: add / save, and stay in the title for the next block.
+    private func submitDraft() {
+        guard !draft.title.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        commitDraft()
+        focus = .title
     }
 
     private func commitDraft() {
@@ -461,13 +461,6 @@ struct PlannerView: View {
         syncStatus = text
         Task { try? await Task.sleep(nanoseconds: 2_500_000_000); syncStatus = "" }
     }
-
-    private func startCycles(on block: TimeBlock) {
-        let s = CycleSession.fitting(block: block)
-        store.today.sessions.append(s)
-        engine.attach(sessionID: s.id, dateKey: store.selectedKey)
-        store.focusMode = true
-    }
 }
 
 extension BlockKind {
@@ -485,6 +478,43 @@ extension BlockKind {
 
 // MARK: - Controls with states
 
+/// The six block kinds as chips in a 3×2 grid: one Tab stop, ← → ↑ ↓ move, 1–6 jump.
+struct KindPicker: View {
+    @Binding var kind: BlockKind
+    @FocusState private var focused: Bool
+    private let kinds = BlockKind.allCases
+
+    var body: some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Space.s), count: 3), spacing: Space.s) {
+            ForEach(kinds) { k in
+                KindChip(kind: k, selected: kind == k) { kind = k }
+            }
+        }
+        .focusRing(focused, shape: RoundedRectangle(cornerRadius: Radius.s, style: .continuous))
+        .focusable()
+        .focused($focused)
+        .focusEffectDisabled()
+        .onKeyPress(.leftArrow) { move(-1) }
+        .onKeyPress(.rightArrow) { move(1) }
+        .onKeyPress(.upArrow) { move(-3) }
+        .onKeyPress(.downArrow) { move(3) }
+        .onKeyPress(characters: .decimalDigits) { press in
+            guard let n = Int(press.characters), n >= 1, n <= kinds.count else { return .ignored }
+            kind = kinds[n - 1]
+            return .handled
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Block kind")
+        .accessibilityValue(kind.label)
+    }
+
+    private func move(_ d: Int) -> KeyPress.Result {
+        let j = (kinds.firstIndex(of: kind) ?? 0) + d
+        if kinds.indices.contains(j) { kind = kinds[j] }
+        return .handled
+    }
+}
+
 struct KindChip: View {
     let kind: BlockKind
     let selected: Bool
@@ -492,32 +522,61 @@ struct KindChip: View {
     @State private var hover = false
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 5) {
-                Circle().fill(selected ? Color.white : kind.color).frame(width: 6, height: 6)
-                Text(kind.shortLabel).font(TypeScale.caption.weight(.medium)).lineLimit(1)
-            }
-            .foregroundColor(selected ? .white : Theme.ink)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 6)
-            .background(selected ? kind.color : kind.color.opacity(hover ? 0.22 : 0.12))
-            .clipShape(Capsule())
+        HStack(spacing: 5) {
+            Circle().fill(selected ? Color.white : kind.color).frame(width: 6, height: 6)
+            Text(kind.shortLabel).font(TypeScale.caption.weight(.medium)).lineLimit(1)
         }
-        .buttonStyle(.plain)
+        .foregroundColor(selected ? .white : Theme.ink)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 6)
+        .background(selected ? kind.color : kind.color.opacity(hover ? 0.22 : 0.12))
+        .clipShape(Capsule())
+        .contentShape(Capsule())
+        .onTapGesture(perform: action)
         .onHover { hover = $0 }
         .help(kind.label)
     }
 }
 
-struct PresetStyle: ButtonStyle {
-    let selected: Bool
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(TypeScale.caption.weight(selected ? .semibold : .regular).monospacedDigit())
-            .foregroundColor(selected ? Theme.ink : Theme.inkFaint)
-            .padding(.horizontal, 6).padding(.vertical, 3)
-            .background(selected ? Theme.paper : (configuration.isPressed ? Theme.paper.opacity(0.5) : Color.clear))
-            .clipShape(Capsule())
+/// Quick lengths for the block. One Tab stop: ← → step through the presets.
+struct DurationPresets: View {
+    @Binding var draft: TimeBlock
+    @FocusState private var focused: Bool
+    private let presets = [30, 60, 90, 120, 150, 190]
+
+    var body: some View {
+        HStack(spacing: Space.xs) {
+            ForEach(presets, id: \.self) { m in
+                let on = draft.minutes == m
+                Text("\(m)")
+                    .font(TypeScale.caption.weight(on ? .semibold : .regular).monospacedDigit())
+                    .foregroundColor(on ? Theme.ink : Theme.inkFaint)
+                    .padding(.horizontal, 6).padding(.vertical, 3)
+                    .background(on ? Theme.paper : Color.clear)
+                    .clipShape(Capsule())
+                    .contentShape(Capsule())
+                    .onTapGesture { set(m) }
+            }
+            Text("min").font(TypeScale.caption).foregroundColor(Theme.inkFaint)
+        }
+        .focusRing(focused, shape: Capsule())
+        .focusable()
+        .focused($focused)
+        .focusEffectDisabled()
+        .onKeyPress(.leftArrow) { step(-1) }
+        .onKeyPress(.rightArrow) { step(1) }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Length")
+        .accessibilityValue("\(draft.minutes) minutes")
+    }
+
+    private func set(_ m: Int) { draft.end = draft.start.addingTimeInterval(TimeInterval(m * 60)) }
+
+    private func step(_ d: Int) -> KeyPress.Result {
+        let cur = draft.minutes
+        if d > 0, let next = presets.first(where: { $0 > cur }) { set(next) }
+        if d < 0, let prev = presets.last(where: { $0 < cur }) { set(prev) }
+        return .handled
     }
 }
 
@@ -533,10 +592,13 @@ struct DayGrid: View {
     let selectedID: UUID?
     let draft: TimeBlock?
     let editingID: UUID?
+    var focus: FocusState<PlannerView.Field?>.Binding
     let onTapBlock: (TimeBlock) -> Void
     let onTapGhost: (TimeBlock) -> Void
     let onCreate: (Date, Date) -> Void
     let onMoveResize: (UUID, Date, Date) -> Void
+    let onMoveSelection: (Int) -> Void
+    let onEdit: () -> Void
     let onDelete: () -> Void
 
     @State private var dragRange: (start: Date, end: Date)? = nil
@@ -549,6 +611,8 @@ struct DayGrid: View {
     private var dayStart: Date { Calendar.current.date(bySettingHour: startHour, minute: 0, second: 0, of: date) ?? date }
     private var dayEnd: Date { dayStart.addingTimeInterval(TimeInterval(totalMinutes * 60)) }
 
+    private var gridFocused: Bool { focus.wrappedValue == .grid }
+
     var body: some View {
         ScrollView {
             HStack(alignment: .top, spacing: Space.m) {
@@ -559,6 +623,19 @@ struct DayGrid: View {
             .padding(Space.xl)
         }
         .background(Theme.paper)
+        // The grid is a Tab stop: ↑↓ walk the blocks, ↩ edits the selected one, ⌫ deletes it.
+        .focusable()
+        .focused(focus, equals: .grid)
+        .focusEffectDisabled()
+        .onKeyPress(.upArrow) { onMoveSelection(-1); return .handled }
+        .onKeyPress(.downArrow) { onMoveSelection(1); return .handled }
+        .onKeyPress(.return) {
+            guard selectedID != nil else { return .ignored }
+            onEdit()
+            return .handled
+        }
+        .onDeleteCommand { if selectedID != nil { onDelete() } }
+        .accessibilityLabel("Day grid")
     }
 
     private var base: some View { Color.clear.frame(maxWidth: .infinity).frame(height: height) }
@@ -627,7 +704,8 @@ struct DayGrid: View {
                     }
                     ForEach(live) { item in
                         let p = placement[item.id] ?? LanePlacement(col: 0, cols: 1)
-                        BlockCard(block: item, selected: item.id == selectedID, session: sessions.last { $0.blockID == item.id })
+                        BlockCard(block: item, selected: item.id == selectedID, session: sessions.last { $0.blockID == item.id },
+                                  keyboard: gridFocused && item.id == selectedID)
                             .frame(width: colWidth(geo.size.width, p), height: cardHeight(item))
                             .overlay(alignment: .bottom) { resizeHandle(for: item) }
                             .offset(x: colX(geo.size.width, p), y: yOffset(item.start) + 1)
@@ -646,7 +724,7 @@ struct DayGrid: View {
             }
             .overlay(alignment: .top) { nowLine }
             .clipped()
-            .onDeleteCommand { if selectedID != nil { onDelete() } }
+            .focusRing(gridFocused && selectedID == nil, shape: RoundedRectangle(cornerRadius: Radius.s, style: .continuous))
     }
 
     // MARK: Move & resize
@@ -790,6 +868,7 @@ struct BlockCard: View {
     let block: TimeBlock
     let selected: Bool
     let session: CycleSession?
+    var keyboard: Bool = false     // selected and the grid has keyboard focus
     @EnvironmentObject var store: Store
     @State private var hover = false
 
@@ -834,6 +913,7 @@ struct BlockCard: View {
         .clipShape(RoundedRectangle(cornerRadius: Radius.s, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: Radius.s, style: .continuous)
             .stroke(selected ? block.kind.color : Color.clear, lineWidth: 1.5))
+        .focusRing(keyboard, shape: RoundedRectangle(cornerRadius: Radius.s, style: .continuous))
         .contentShape(Rectangle())
         .onHover { hover = $0 }
         .animation(.easeOut(duration: 0.12), value: hover)

@@ -229,6 +229,8 @@ struct SystemDocs: Codable {
     var weeks: [String: WeekPlan] = [:]
     var nextOverhaul: Date? = nil
     var tasks: [TaskItem] = []
+    var defaultWorkStartHour: Int = 8    // the grid a fresh day starts with; any day can override (Settings, ⌘,)
+    var defaultWorkEndHour: Int = 18
 
     init() {}
 
@@ -241,6 +243,8 @@ struct SystemDocs: Codable {
         weeks = try c.decodeIfPresent([String: WeekPlan].self, forKey: .weeks) ?? [:]
         nextOverhaul = try c.decodeIfPresent(Date.self, forKey: .nextOverhaul)
         tasks = try c.decodeIfPresent([TaskItem].self, forKey: .tasks) ?? []
+        defaultWorkStartHour = try c.decodeIfPresent(Int.self, forKey: .defaultWorkStartHour) ?? 8
+        defaultWorkEndHour = try c.decodeIfPresent(Int.self, forKey: .defaultWorkEndHour) ?? 18
         // migrate the old free-text Tasks document into items, once
         if tasks.isEmpty, let i = docs.firstIndex(where: { $0.kind == .tasks }) {
             let lines = docs[i].text.split(whereSeparator: \.isNewline).map { String($0).trimmingCharacters(in: .whitespaces) }
@@ -254,7 +258,9 @@ struct SystemDocs: Codable {
 
 /// Commands issued from menus / hotkeys that a specific page has to carry out.
 enum PendingCommand: Equatable {
-    case newBlock, deleteBlock, importEvents, pushPlan, focusCollection, startCycle, endCycle, togglePause, reconcileCalendar
+    case newBlock, deleteBlock, importEvents, pushPlan, focusCollection, reconcileCalendar
+    case primaryAction      // ⌘↩ in Focus: the next step of the selected session
+    case newSession         // ⇧⌘N: a session for the next free deep block, or standalone
 }
 
 final class Store: ObservableObject {
@@ -266,6 +272,14 @@ final class Store: ObservableObject {
     @Published var focusMode = false     // a Work Cycles session has taken over the window
     @Published var showShutdown = false  // the end-of-day sheet
     @Published var showPalette = false   // command palette (⌘P)
+    @Published var focusSessionID: UUID? = nil   // the session Focus shows (menus and the palette drive it too)
+    @Published var focusStage: Int = 0           // 0 Prepare, 1 Work, 2 Debrief
+    @Published var formFocusTick: Int = 0        // bumped to put keyboard focus in the current step's first field
+
+    /// Ask the Focus form to take keyboard focus once the next step has rendered.
+    func requestFormFocus() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { self.formFocusTick += 1 }
+    }
     private var undoStack: [(key: String, plan: DayPlan)] = []
     private var redoStack: [(key: String, plan: DayPlan)] = []
     var canUndo: Bool { !undoStack.isEmpty }
@@ -304,8 +318,10 @@ final class Store: ObservableObject {
     private var loaded = false
 
     init() {
-        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("DeepCycles", isDirectory: true)
+        // DEEPCYCLES_DATA_DIR points a test run at a scratch folder instead of the real data.
+        let dir = ProcessInfo.processInfo.environment["DEEPCYCLES_DATA_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true) }
+            ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("DeepCycles", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         fileURL = dir.appendingPathComponent("plans.json")
         systemURL = dir.appendingPathComponent("system.json")
@@ -419,11 +435,19 @@ final class Store: ObservableObject {
 
     /// The plan for the selected day (created on first write).
     var today: DayPlan {
-        get { plans[selectedKey] ?? DayPlan() }
+        get { plans[selectedKey] ?? freshDay() }
         set { plans[selectedKey] = newValue }
     }
 
-    func plan(for date: Date) -> DayPlan { plans[Store.key(for: date)] ?? DayPlan() }
+    func plan(for date: Date) -> DayPlan { plans[Store.key(for: date)] ?? freshDay() }
+
+    /// An empty day with the hours from Settings.
+    func freshDay() -> DayPlan {
+        var p = DayPlan()
+        p.workStartHour = system.defaultWorkStartHour
+        p.workEndHour = max(system.defaultWorkStartHour + 1, system.defaultWorkEndHour)
+        return p
+    }
 
     func session(forBlock id: UUID) -> CycleSession? {
         today.sessions.last { $0.blockID == id }
