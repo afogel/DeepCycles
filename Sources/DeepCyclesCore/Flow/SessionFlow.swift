@@ -213,4 +213,11 @@ package struct SessionFlow {
         store.today.sessions.removeAll { $0.id == id }
         if ui.focusSessionID == id { ui.focusSessionID = nil }
     }
+
+    /// Prepare's Cancel: discard a session that never started. Undoable like delete; leaves Focus
+    /// when it was the day's only session, since nothing is left to look at there.
+    package func cancel(_ id: UUID) {
+        delete(id)
+        if store.today.sessions.isEmpty { ui.focusMode = false }
+    }
 }

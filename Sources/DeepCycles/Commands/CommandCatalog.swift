@@ -35,10 +35,10 @@ enum CommandCatalog {
 
         // Edit
         add("edit.undo", "Undo", "Edit", .init("z"), menu: .edit, enabled: store.canUndo, palette: false) {
-            if store.undo() { ui.pending = .reconcileCalendar }
+            if store.undo()?.isDay == true { ui.pending = .reconcileCalendar }
         }
         add("edit.redo", "Redo", "Edit", .init("z", modifiers: [.command, .shift]), menu: .edit, enabled: store.canRedo, palette: false) {
-            if store.redo() { ui.pending = .reconcileCalendar }
+            if store.redo()?.isDay == true { ui.pending = .reconcileCalendar }
         }
 
         // Application-wide
@@ -50,7 +50,7 @@ enum CommandCatalog {
         add("go.week", "Week", "Go", .init("2"), menu: .go) { ui.go(.week) }
         add("go.systems", "Systems", "Go", .init("3"), menu: .go) { ui.go(.systems) }
         add("go.focus", ui.focusMode ? "Leave Focus" : "Focus (Cycles)", "Go", .init("f", modifiers: [.command, .shift]), menu: .go, section: 1) { ui.focusMode.toggle() }
-        add("go.endDay", "End Day…", "Go", menu: .go, section: 1) { ui.showShutdown = true }
+        add("go.endDay", "End Day…", "Go", .init("e", modifiers: [.command, .shift]), menu: .go, section: 1) { ui.showShutdown.toggle() }
         add("go.tasks", "Tasks", "Go", menu: .go, section: 1, palette: false) { ui.showSystems(.doc(.tasks)) }
         add("go.sessionLog", "Session Log", "Go", menu: .go, section: 1, palette: false) { ui.showSystems(.sessions) }
         add("go.prev", ui.tab == .week ? "Previous Week" : "Previous Day", "Go", .init("["), menu: .go, section: 2) { ui.shiftPeriod(-1, in: store) }
@@ -66,7 +66,7 @@ enum CommandCatalog {
             ui.pending = .newSession
         }
         add("day.deleteBlock", "Delete Block", "Day", .init(.delete), menu: .file, section: 1) { ui.pending = .deleteBlock }
-        add("day.capture", "Capture to Collection", "Day", .init("k"), menu: .file, section: 1) { ui.go(.day); ui.pending = .focusCollection }
+        add("day.capture", "Capture to Collection", "Day", .init("k"), menu: .file, section: 1) { ui.showCapture.toggle() }
         add("day.adopt", "Adopt Calendar Events as Blocks", "Day", menu: .file, section: 2) { ui.go(.day); ui.pending = .importEvents }
         add("day.sync", "Sync Blocks to Calendar Now", "Day", menu: .file, section: 2) { ui.go(.day); ui.pending = .pushPlan }
         add("day.collect", "Move Collection to Tasks", "Day") { store.processCollection() }
@@ -88,7 +88,7 @@ enum CommandCatalog {
             ui.pending = .primaryAction
         }
         add("cycle.pause", engine.paused ? "Resume" : "Pause", "Cycle", .init("."), menu: .cycle, enabled: engine.isRunning) { engine.togglePause() }
-        add("cycle.end", engine.phase == .breaking ? "End Break" : "End Cycle Early", "Cycle", .init("e", modifiers: [.command, .shift]),
+        add("cycle.end", engine.phase == .breaking ? "End Break" : "End Cycle Early", "Cycle", .init(".", modifiers: [.command, .shift]),
             menu: .cycle, enabled: engine.isRunning) { engine.endNow() }
 
         if ui.focusMode, let s = flow.selected {
@@ -124,6 +124,7 @@ enum CommandCatalog {
         (["settings"], "Settings"),
         (["go.day", "go.week", "go.systems"], "Day · Week · Systems"),
         (["go.focus"], "Focus mode in / out (⎋ also leaves)"),
+        (["go.endDay"], "End day: the shutdown sheet"),
         (["go.prev", "go.next", "go.today"], "Previous · next · today"),
         (["day.newBlock", "day.deleteBlock"], "New block · delete the selected block"),
         (["edit.undo", "edit.redo"], "Undo · redo"),

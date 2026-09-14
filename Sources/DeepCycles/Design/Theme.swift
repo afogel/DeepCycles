@@ -22,6 +22,10 @@ enum Theme {
     static let inkFaint  = dyn((122, 128, 140), (138, 143, 152))
     static let nowLine   = dyn((204, 68, 52), (214, 122, 106))
 
+    /// Text inputs: lifted off the paper in light, sunk into it in dark, with their own hairline.
+    static let field     = dyn((252, 251, 248), (26, 28, 33))
+    static let fieldRule = dyn((211, 207, 198), (72, 76, 85))
+
     // Block pigments — dark variants are desaturated and lifted so they sit quietly on the page.
     static let deep     = dyn((36, 66, 118), (128, 158, 204))
     static let shallow  = dyn((126, 132, 140), (138, 144, 152))
@@ -35,7 +39,7 @@ enum Theme {
     static let breakField = dyn((84, 128, 84), (50, 74, 58))
     static let onField    = dyn((250, 250, 250), (222, 224, 228))
 
-    /// Focus ring colour for the keyboard controls (Controls.swift).
+    /// Focus ring colour (Focus.swift).
     static let focus = deep
 
     // Type
@@ -94,6 +98,7 @@ enum TypeScale {
 
 enum Radius {
     static let s: CGFloat = 6
+    static let input: CGFloat = 8
     static let m: CGFloat = 10
 }
 
@@ -116,14 +121,4 @@ struct SectionHeading: View {
 
 extension View {
     func panel() -> some View { modifier(Panel()) }
-
-    /// The app's keyboard-focus ring, drawn just outside `shape` while `on`.
-    func focusRing<S: InsettableShape>(_ on: Bool, shape: S, color: Color = Theme.focus) -> some View {
-        overlay(
-            shape.inset(by: -3)
-                .stroke(color, lineWidth: 2)
-                .opacity(on ? 1 : 0)
-                .allowsHitTesting(false)
-        )
-    }
 }

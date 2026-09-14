@@ -33,4 +33,11 @@ package enum DateKeys {
         let comps = c.dateComponents([.yearForWeekOfYear, .weekOfYear], from: date)
         return String(format: "%04d-W%02d", comps.yearForWeekOfYear ?? 0, comps.weekOfYear ?? 0)
     }
+
+    /// The Monday of a "yyyy-Www" key.
+    package static func date(fromWeek key: String) -> Date? {
+        let parts = key.components(separatedBy: "-W")
+        guard parts.count == 2, let year = Int(parts[0]), let week = Int(parts[1]) else { return nil }
+        return Calendar(identifier: .iso8601).date(from: DateComponents(weekday: 2, weekOfYear: week, yearForWeekOfYear: year))
+    }
 }

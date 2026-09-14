@@ -65,6 +65,7 @@ struct SegmentPicker<T: Hashable>: View {
                     .frame(maxWidth: .infinity)
                     .background(on ? Theme.paper : Color.clear)
                     .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .hoverTint(RoundedRectangle(cornerRadius: 6, style: .continuous), active: !on)
                     .contentShape(Rectangle())
                     .onTapGesture { selection = opt.value }
             }
@@ -205,6 +206,7 @@ struct TargetPicker: View {
                     .padding(.horizontal, 12).padding(.vertical, 5)
                     .background(value == v ? Theme.deep : Theme.paperDeep)
                     .clipShape(Capsule())
+                    .hoverTint(Capsule(), active: value != v)
                     .contentShape(Capsule())
                     .onTapGesture { value = v }
             }

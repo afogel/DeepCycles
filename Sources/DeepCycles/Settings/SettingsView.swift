@@ -20,7 +20,7 @@ struct SettingsView: View {
                     ValueStepper($store.system.defaultWorkStartHour, in: 0...22) { "From \($0):00" }
                     ValueStepper($store.system.defaultWorkEndHour, in: 1...23) { "to \($0):00" }
                 }
-                Text("The grid a new day starts with. A single day is changed from the gear in the Day footer.")
+                Text("Today and the days ahead follow these hours, unless a day has its own from the gear in the Day footer.")
                     .font(TypeScale.caption).foregroundColor(Theme.inkFaint)
             }
 
@@ -53,12 +53,14 @@ struct SettingsView: View {
         .padding(Space.xl)
         .frame(width: 460)
         .background(Theme.paper)
-        .onChange(of: store.system.defaultWorkStartHour) {
+        .onChange(of: store.system.defaultWorkStartHour) { old, _ in
+            store.adoptDefaultHours(previousStart: old, previousEnd: store.system.defaultWorkEndHour)
             if store.system.defaultWorkEndHour <= store.system.defaultWorkStartHour {
                 store.system.defaultWorkEndHour = min(23, store.system.defaultWorkStartHour + 1)
             }
         }
-        .onChange(of: store.system.defaultWorkEndHour) {
+        .onChange(of: store.system.defaultWorkEndHour) { old, _ in
+            store.adoptDefaultHours(previousStart: store.system.defaultWorkStartHour, previousEnd: old)
             if store.system.defaultWorkStartHour >= store.system.defaultWorkEndHour {
                 store.system.defaultWorkStartHour = max(0, store.system.defaultWorkEndHour - 1)
             }

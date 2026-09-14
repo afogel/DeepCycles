@@ -79,6 +79,7 @@ struct DurationPresets: View {
                     .padding(.horizontal, 6).padding(.vertical, 3)
                     .background(on ? Theme.paper : Color.clear)
                     .clipShape(Capsule())
+                    .hoverTint(Capsule(), active: !on)
                     .contentShape(Capsule())
                     .onTapGesture { set(m) }
             }

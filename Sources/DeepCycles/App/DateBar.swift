@@ -16,11 +16,11 @@ struct DateBar: View {
         HStack(spacing: 18) {
             Wordmark(size: 15)
             HStack(spacing: 4) {
-                Button { ui.shiftPeriod(-1, in: store) } label: { Image(systemName: "chevron.left") }.buttonStyle(.borderless)
+                Button { ui.shiftPeriod(-1, in: store) } label: { Image(systemName: "chevron.left") }.buttonStyle(IconButtonStyle())
                 Text(store.selectedDate.formatted(.dateTime.weekday(.wide).day().month(.wide)))
                     .font(Theme.display(20)).foregroundColor(Theme.ink)
                     .frame(minWidth: 220, alignment: .center)
-                Button { ui.shiftPeriod(1, in: store) } label: { Image(systemName: "chevron.right") }.buttonStyle(.borderless)
+                Button { ui.shiftPeriod(1, in: store) } label: { Image(systemName: "chevron.right") }.buttonStyle(IconButtonStyle())
                 if !Calendar.current.isDateInToday(store.selectedDate) {
                     Button("Today") { store.selectedDate = Calendar.current.startOfDay(for: Date()) }
                         .buttonStyle(QuietButtonStyle())
@@ -48,10 +48,28 @@ struct DateBar: View {
                 Label("Shutdown complete", systemImage: "checkmark.seal.fill").foregroundColor(Theme.breakC).font(Theme.small)
             }
 
-            Button { showShortcuts.toggle() } label: {
-                Image(systemName: "keyboard").foregroundColor(Theme.inkFaint)
+            // Quick capture, reachable from every page and from inside a running cycle.
+            Button { ui.showCapture.toggle() } label: {
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: "tray.and.arrow.down")
+                    let open = store.collection(now: now).filter { !$0.done }.count
+                    if open > 0 {
+                        Text("\(open)")
+                            .font(.system(size: 9, weight: .semibold).monospacedDigit()).foregroundColor(.white)
+                            .padding(.horizontal, 4).padding(.vertical, 1)
+                            .background(Theme.deep).clipShape(Capsule())
+                            .offset(x: 9, y: -7)
+                    }
+                }
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(IconButtonStyle())
+            .help("Capture a thought to today's Collection  ⌘K")
+            .popover(isPresented: $ui.showCapture, arrowEdge: .bottom) { CapturePopover() }
+
+            Button { showShortcuts.toggle() } label: {
+                Image(systemName: "keyboard")
+            }
+            .buttonStyle(IconButtonStyle())
             .help("Keyboard shortcuts")
             .popover(isPresented: $showShortcuts) { ShortcutsSheet() }
         }
@@ -113,7 +131,7 @@ struct TimerPill: View {
                 Button { engine.togglePause() } label: { Image(systemName: engine.paused ? "play.fill" : "pause.fill") }
                     .buttonStyle(.plain).foregroundColor(Theme.inkFaint).help(engine.paused ? "Resume  ⌘." : "Pause  ⌘.")
                 Button { engine.endNow() } label: { Image(systemName: "forward.end.fill") }
-                    .buttonStyle(.plain).foregroundColor(Theme.inkFaint).help(engine.phase == .breaking ? "End break  ⇧⌘E" : "End cycle  ⇧⌘E")
+                    .buttonStyle(.plain).foregroundColor(Theme.inkFaint).help(engine.phase == .breaking ? "End break  ⇧⌘." : "End cycle  ⇧⌘.")
             }
         }
         .padding(.horizontal, Space.m).padding(.vertical, 5)

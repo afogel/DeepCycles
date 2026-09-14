@@ -21,7 +21,7 @@ package final class Store: ObservableObject {
     private let saveDelay: Duration
     private var pendingSaves: [SaveTarget: Task<Void, Never>] = [:]
     private var loaded = false
-    private var history = UndoHistory<DaySnapshot>(limit: 50)
+    private var history = UndoHistory<Snapshot>(limit: 50)
 
     private enum SaveTarget { case plans, system }
 
@@ -87,43 +87,60 @@ package final class Store: ObservableObject {
         if let data { try? data.write(to: url(target), options: .atomic) }
     }
 
-    // MARK: Undo (block edits; ⌘Z restores the whole day)
+    // MARK: Undo (⌘Z restores a whole day, or a week plan replaced by Copy last week)
 
-    package struct DaySnapshot {
-        package let key: String
-        package let plan: DayPlan
+    package enum Snapshot {
+        case day(key: String, plan: DayPlan)
+        case week(key: String, plan: WeekPlan)
+
+        package var isDay: Bool { if case .day = self { return true } else { return false } }
     }
 
     package var canUndo: Bool { history.canUndo }
     package var canRedo: Bool { history.canRedo }
 
-    /// Call before any block edit.
+    /// Call before any block or session edit.
     package func snapshot() {
-        history.record(DaySnapshot(key: selectedKey, plan: today))
+        history.record(.day(key: selectedKey, plan: today))
         objectWillChange.send()
     }
 
-    /// Restores the previous state of the day it belongs to (switching to that day if needed).
-    /// Returns false when there was nothing to undo.
+    /// Call before replacing the selected week's plan.
+    package func snapshotWeek() {
+        history.record(.week(key: selectedWeekKey, plan: thisWeek))
+        objectWillChange.send()
+    }
+
+    /// Restores the previous state of the day or week it belongs to (switching there if needed).
+    /// Returns what was restored; nil when there was nothing to undo.
     @discardableResult
-    package func undo() -> Bool {
+    package func undo() -> Snapshot? {
         restore(history.undo { self.current($0) })
     }
 
     @discardableResult
-    package func redo() -> Bool {
+    package func redo() -> Snapshot? {
         restore(history.redo { self.current($0) })
     }
 
-    private func current(_ s: DaySnapshot) -> DaySnapshot {
-        DaySnapshot(key: s.key, plan: plans[s.key] ?? DayPlan())
+    private func current(_ s: Snapshot) -> Snapshot {
+        switch s {
+        case .day(let key, _): return .day(key: key, plan: plans[key] ?? DayPlan())
+        case .week(let key, _): return .week(key: key, plan: system.weeks[key] ?? WeekPlan())
+        }
     }
 
-    private func restore(_ s: DaySnapshot?) -> Bool {
-        guard let s else { return false }
-        plans[s.key] = s.plan
-        if s.key != selectedKey, let d = DateKeys.date(fromDay: s.key) { selectedDate = d }
-        return true
+    private func restore(_ s: Snapshot?) -> Snapshot? {
+        guard let s else { return nil }
+        switch s {
+        case .day(let key, let plan):
+            plans[key] = plan
+            if key != selectedKey, let d = DateKeys.date(fromDay: key) { selectedDate = d }
+        case .week(let key, let plan):
+            system.weeks[key] = plan
+            if key != selectedWeekKey, let d = DateKeys.date(fromWeek: key) { selectedDate = d }
+        }
+        return s
     }
 
     // MARK: Days
@@ -144,6 +161,20 @@ package final class Store: ObservableObject {
         p.workStartHour = system.defaultWorkStartHour
         p.workEndHour = max(system.defaultWorkStartHour + 1, system.defaultWorkEndHour)
         return p
+    }
+
+    /// Settings changed the default hours: today and the days ahead that still showed the old
+    /// defaults follow along. Days set by hand from the Day footer, and the past, keep theirs.
+    package func adoptDefaultHours(previousStart: Int, previousEnd: Int, from day: Date = Date()) {
+        let start = system.defaultWorkStartHour
+        let end = max(start + 1, system.defaultWorkEndHour)
+        let todayKey = DateKeys.day(day)
+        for (key, plan) in plans where key >= todayKey && plan.workStartHour == previousStart && plan.workEndHour == previousEnd {
+            var p = plan
+            p.workStartHour = start
+            p.workEndHour = end
+            plans[key] = p
+        }
     }
 
     package func shiftDay(_ days: Int) {
@@ -228,6 +259,22 @@ package final class Store: ObservableObject {
         system.docs[i].text = text
         system.docs[i].updated = Date()
     }
+
+    /// Quick capture (⌘K): a thought goes into the Collection of the actual current day,
+    /// whatever day is being looked at, so it is processed at tonight's shutdown.
+    /// Blank text is ignored; returns false when nothing was added.
+    @discardableResult
+    package func capture(_ text: String, now: Date = Date()) -> Bool {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return false }
+        var p = plan(for: now)
+        p.captured.append(TaskItem(text: t))
+        plans[DateKeys.day(now)] = p
+        return true
+    }
+
+    /// The actual current day's Collection.
+    package func collection(now: Date = Date()) -> [TaskItem] { plan(for: now).captured }
 
     /// Shutdown "full capture": move today's captured items into the task list.
     /// Items already ticked off are dropped; the rest are trusted to the list.

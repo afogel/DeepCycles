@@ -15,6 +15,22 @@ final class SessionFlowTests: XCTestCase {
         return s
     }
 
+    func testCancelDiscardsAnUnstartedSessionAndLeavesFocusWhenNoneRemain() {
+        let h = Harness()
+        h.ui.focusMode = true
+        h.flow.newSession(from: nil)
+        let other = CycleSession()
+        h.store.today.sessions.append(other)
+        h.flow.cancel(h.ui.focusSessionID!)
+        XCTAssertEqual(h.store.today.sessions.map(\.id), [other.id])
+        XCTAssertTrue(h.ui.focusMode)                        // another session is still there to look at
+        h.flow.cancel(other.id)
+        XCTAssertTrue(h.store.today.sessions.isEmpty)
+        XCTAssertFalse(h.ui.focusMode)
+        XCTAssertNotNil(h.store.undo())                      // ⌘Z brings the session back
+        XCTAssertEqual(h.store.today.sessions.count, 1)
+    }
+
     func testNextFreeDeepBlockPrefersOneThatHasNotEnded() {
         let h = Harness()
         let morning = block("Morning", on: h.day, from: (9, 0), to: (11, 30))
@@ -156,7 +172,7 @@ final class SessionFlowTests: XCTestCase {
         XCTAssertTrue(h.store.today.sessions.isEmpty)
         XCTAssertNil(h.ui.focusSessionID)
         XCTAssertEqual(h.engine.phase, .idle)
-        XCTAssertTrue(h.store.undo())
+        XCTAssertNotNil(h.store.undo())
         XCTAssertEqual(h.store.today.sessions.map(\.id), [s.id])
     }
 

@@ -14,6 +14,26 @@ final class StoreTests: XCTestCase {
         XCTAssertEqual(h.store.freshDay().workEndHour, 10)   // never before the start
     }
 
+    func testChangedDefaultHoursReachTodayAndTheDaysAhead() {
+        let h = Harness()
+        let yesterday = date(2026, 3, 9), tomorrow = date(2026, 3, 11), byHand = date(2026, 3, 12)
+        h.store.plans[DateKeys.day(yesterday)] = h.store.freshDay()
+        h.store.today.blocks.append(block(on: h.day, from: (9, 0), to: (10, 0)))   // today exists, on the defaults
+        h.store.plans[DateKeys.day(tomorrow)] = h.store.freshDay()
+        var own = h.store.freshDay()
+        own.workStartHour = 6; own.workEndHour = 12
+        h.store.plans[DateKeys.day(byHand)] = own
+
+        let oldStart = h.store.system.defaultWorkStartHour
+        h.store.system.defaultWorkStartHour = 7
+        h.store.adoptDefaultHours(previousStart: oldStart, previousEnd: h.store.system.defaultWorkEndHour, from: h.day)
+
+        XCTAssertEqual(h.store.today.workStartHour, 7)
+        XCTAssertEqual(h.store.plan(for: tomorrow).workStartHour, 7)
+        XCTAssertEqual(h.store.plan(for: yesterday).workStartHour, oldStart)   // the past keeps its grid
+        XCTAssertEqual(h.store.plan(for: byHand).workStartHour, 6)             // a day set by hand keeps its own
+    }
+
     func testWritingTodayCreatesThePlan() {
         let h = Harness()
         XCTAssertEqual(h.store.selectedKey, "2026-03-10")
@@ -52,14 +72,14 @@ final class StoreTests: XCTestCase {
 
     func testUndoAndRedoRestoreTheDay() {
         let h = Harness()
-        XCTAssertFalse(h.store.undo())
+        XCTAssertNil(h.store.undo())
         h.store.snapshot()
         h.store.today.blocks.append(block(on: h.day, from: (9, 0), to: (10, 0)))
         XCTAssertTrue(h.store.canUndo)
-        XCTAssertTrue(h.store.undo())
+        XCTAssertNotNil(h.store.undo())
         XCTAssertTrue(h.store.today.blocks.isEmpty)
         XCTAssertTrue(h.store.canRedo)
-        XCTAssertTrue(h.store.redo())
+        XCTAssertNotNil(h.store.redo())
         XCTAssertEqual(h.store.today.blocks.count, 1)
         h.store.snapshot()
         XCTAssertFalse(h.store.canRedo)
@@ -70,9 +90,33 @@ final class StoreTests: XCTestCase {
         h.store.snapshot()
         h.store.today.blocks.append(block(on: h.day, from: (9, 0), to: (10, 0)))
         h.store.selectedDate = date(2026, 3, 11)
-        XCTAssertTrue(h.store.undo())
+        XCTAssertNotNil(h.store.undo())
         XCTAssertEqual(h.store.selectedDate, date(2026, 3, 10))
         XCTAssertTrue(h.store.today.blocks.isEmpty)
+    }
+
+    func testUndoRestoresTheWeekPlanReplacedByCopyLastWeek() {
+        let h = Harness()                                   // 2026-03-10 is in week 11
+        var last = WeekPlan()
+        last.outcomes = [TaskItem(text: "Ship it"), TaskItem(text: "Done already", done: true)]
+        last.weeklyPlan = "Push hard"
+        h.store.system.weeks[DateKeys.week(date(2026, 3, 3))] = last
+        var mine = WeekPlan()
+        mine.weeklyPlan = "My own plan"
+        h.store.thisWeek = mine
+
+        h.store.snapshotWeek()
+        h.store.thisWeek = h.store.lastWeek!.carriedForward()
+        XCTAssertEqual(h.store.thisWeek.outcomes.map(\.text), ["Ship it"])
+        XCTAssertEqual(h.store.thisWeek.weeklyPlan, "Push hard")
+
+        h.store.selectedDate = date(2026, 3, 20)            // looking at another week: undo comes back
+        XCTAssertNotNil(h.store.undo())
+        XCTAssertEqual(h.store.selectedWeekKey, DateKeys.week(date(2026, 3, 10)))
+        XCTAssertEqual(h.store.thisWeek.weeklyPlan, "My own plan")
+        XCTAssertTrue(h.store.thisWeek.outcomes.isEmpty)
+        XCTAssertNotNil(h.store.redo())
+        XCTAssertEqual(h.store.thisWeek.outcomes.map(\.text), ["Ship it"])
     }
 
     func testChangesAreWrittenOnFlushAndReadBackByANewStore() {
@@ -87,6 +131,16 @@ final class StoreTests: XCTestCase {
         again.selectedDate = h.day
         XCTAssertEqual(again.today.blocks.map(\.title), ["Persisted"])
         XCTAssertEqual(again.system.root, "root text")
+    }
+
+    func testQuickCaptureGoesToTheActualDayNotTheOneBeingLookedAt() {
+        let h = Harness()                                   // looking at 2026-03-10
+        let now = date(2026, 3, 12, 10, 30)
+        XCTAssertTrue(h.store.capture("  call Sam ", now: now))
+        XCTAssertFalse(h.store.capture("   ", now: now))
+        XCTAssertEqual(h.store.collection(now: now).map(\.text), ["call Sam"])
+        XCTAssertTrue(h.store.today.captured.isEmpty)
+        XCTAssertEqual(h.store.plans[DateKeys.day(now)]?.captured.count, 1)
     }
 
     func testProcessCollectionMovesOpenItemsOnly() {

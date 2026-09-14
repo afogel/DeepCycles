@@ -1,11 +1,15 @@
 import SwiftUI
 import DeepCyclesCore
 
-/// The menu-bar extra: countdown, pause / end, and a way back into the app.
+/// The menu-bar extra: countdown, pause / end, a capture field for the Collection, and a way
+/// back into the app. Usable without bringing the window forward.
 @MainActor
 struct MenuBarView: View {
     @EnvironmentObject var engine: CycleEngine
+    @EnvironmentObject var store: Store
     @EnvironmentObject var ui: AppState
+    @State private var capture = ""
+    @FocusState private var captureFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -19,6 +23,7 @@ struct MenuBarView: View {
                 Wordmark(size: 16)
                 Text("Nothing running. Plan a deep block, then run cycles on it.")
                     .font(Theme.small).foregroundColor(Theme.inkFaint)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             if engine.isRunning {
@@ -34,6 +39,22 @@ struct MenuBarView: View {
             }
 
             Divider()
+
+            // Quick capture into today's Collection, straight from the menu bar.
+            VStack(alignment: .leading, spacing: 4) {
+                TextField("Capture a thought…", text: $capture)
+                    .textFieldStyle(.plain).font(TypeScale.body)
+                    .focused($captureFocused)
+                    .onSubmit { if store.capture(capture) { capture = "" } }
+                    .padding(.horizontal, Space.s).padding(.vertical, 6)
+                    .background(Theme.paperDeep)
+                    .clipShape(RoundedRectangle(cornerRadius: Radius.s, style: .continuous))
+                let open = store.collection().filter { !$0.done }.count
+                Text(open == 0 ? "↩ adds it to today's Collection." : "\(open) in today's Collection, processed at shutdown.")
+                    .font(TypeScale.caption).foregroundColor(Theme.inkFaint)
+            }
+
+            Divider()
             Button("Open DeepCycles") {
                 if engine.session() != nil { ui.focusMode = true }
                 NSApp.activate(ignoringOtherApps: true)
@@ -44,5 +65,9 @@ struct MenuBarView: View {
         .padding(14)
         .frame(width: 270)
         .background(Theme.paper)
+        .onAppear {
+            captureFocused = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { captureFocused = true }
+        }
     }
 }

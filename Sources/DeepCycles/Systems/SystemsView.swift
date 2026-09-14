@@ -172,8 +172,11 @@ struct SystemsView: View {
                 Text(weekRange).foregroundColor(Theme.inkFaint)
                 Spacer()
                 Button("Copy last week") {
-                    if let p = store.lastWeek { store.thisWeek = p.carriedForward() }
-                }.buttonStyle(QuietButtonStyle())
+                    if let p = store.lastWeek { store.snapshotWeek(); store.thisWeek = p.carriedForward() }
+                }
+                .buttonStyle(QuietButtonStyle())
+                .disabled(store.lastWeek == nil)
+                .help("Carries last week's open outcomes, habits and notes into this week, replacing what is here. ⌘Z undoes it.")
             }
             Text("Built once a week from the strategic plans, calendar, task list and values plan. There is no fixed format: an intricate week gets an intricate plan; a quiet one might be a single line.")
                 .foregroundColor(Theme.inkFaint)

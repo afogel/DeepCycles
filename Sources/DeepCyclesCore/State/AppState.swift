@@ -10,6 +10,7 @@ package final class AppState: ObservableObject {
     @Published package var focusMode = false          // a Work Cycles session has taken over the window
     @Published package var showShutdown = false       // the end-of-day sheet
     @Published package var showPalette = false        // command palette (⌘P)
+    @Published package var showCapture = false        // quick capture into today's Collection (⌘K), from the top bar
     @Published package var systemsPage: SystemsPage = .week
     @Published package var pending: PendingCommand? = nil
 

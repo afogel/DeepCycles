@@ -94,6 +94,14 @@ package final class CalendarService: ObservableObject {
     }
 
     /// Creates or updates the calendar event for a block. Returns the event identifier.
+    /// The full event behind an imported ghost or a pushed block, for the details popover: the
+    /// occurrence on `day` when there is one (a recurring event's identifier alone resolves to its
+    /// first occurrence, with that day's dates). Nil without access, or once the event is gone.
+    package func event(withIdentifier id: String, on day: Date) -> EKEvent? {
+        guard authorized else { return nil }
+        return events(on: day).first { $0.eventIdentifier == id } ?? eventStore.event(withIdentifier: id)
+    }
+
     @discardableResult
     package func push(_ block: TimeBlock) throws -> String {
         guard authorized else { throw CalendarError.notAuthorized }

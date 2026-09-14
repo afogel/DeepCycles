@@ -46,7 +46,7 @@ package enum Appearance: String, CaseIterable, Identifiable {
 /// Commands issued from menus or the palette that a specific page has to carry out. The page
 /// clears the command once done; a page that appears later picks it up on appear.
 package enum PendingCommand: Equatable {
-    case newBlock, deleteBlock, importEvents, pushPlan, focusCollection, reconcileCalendar
+    case newBlock, deleteBlock, importEvents, pushPlan, reconcileCalendar
     case primaryAction      // ⌘↩ in Focus: the next step of the selected session
     case newSession         // ⇧⌘N: a session for the next free deep block, or standalone
 }

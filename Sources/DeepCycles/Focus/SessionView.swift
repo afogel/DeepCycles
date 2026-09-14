@@ -112,6 +112,13 @@ struct PrepareView: View {
                 Button { flow.toPlan(session.id) } label: { Label("Ready. Plan the first cycle", systemImage: "arrow.right") }
                     .buttonStyle(InkButtonStyle())
                 Text("⌘↩").font(TypeScale.caption).foregroundColor(Theme.inkFaint)
+                if !session.hasStarted {
+                    Spacer()
+                    Button("Cancel") { flow.cancel(session.id) }
+                        .buttonStyle(QuietButtonStyle())
+                        .help(session.blockID == nil ? "Discard this session. ⌘Z brings it back."
+                                                     : "Discard this session; the block stays. ⌘Z brings it back.")
+                }
             }
         }
     }
@@ -244,7 +251,7 @@ struct WorkView: View {
             }
             HStack(spacing: 10) {
                 Button(engine.paused ? "Resume  ⌘." : "Pause  ⌘.") { engine.togglePause() }.buttonStyle(FieldButtonStyle())
-                Button(working ? "End cycle early  ⇧⌘E" : "Skip break  ⇧⌘E") { engine.endNow() }.buttonStyle(FieldButtonStyle())
+                Button(working ? "End cycle early  ⇧⌘." : "Skip break  ⇧⌘.") { engine.endNow() }.buttonStyle(FieldButtonStyle())
             }
             .padding(.top, 6)
         }

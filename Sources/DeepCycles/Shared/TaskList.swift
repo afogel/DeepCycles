@@ -6,7 +6,6 @@ struct TaskList: View {
     @Binding var items: [TaskItem]
     var placeholder: String = "Add a task"
     var showDone: Bool = true
-    var focusRequest: Int = 0
     @State private var newText = ""
     @FocusState private var focusedID: UUID?
     @FocusState private var addFocused: Bool
@@ -27,7 +26,6 @@ struct TaskList: View {
             }
             .padding(.vertical, 5).padding(.horizontal, Space.s)
         }
-        .onChange(of: focusRequest) { addFocused = true }
     }
 
     private func add() {

@@ -9,8 +9,8 @@ your Google / iCloud / Exchange calendars).
     Systems   → Newport's root document: Values, Career & Personal strategic plans,
                 Ideas, Tasks, disciplines
     Focus     → a Work Cycles session takes over the window (from a deep block, ⇧⌘F)
-    End day   → the shutdown sheet: disciplines, metrics, full capture, "complete" (⇧⌘S)
-    Menu bar  → live cycle countdown, pause, end cycle
+    End day   → the shutdown sheet: disciplines, metrics, full capture, "complete" (⇧⌘E)
+    Menu bar  → live cycle countdown, pause, end cycle, capture a thought
 
 ## Install (about 2 minutes)
 
@@ -75,10 +75,11 @@ day have a shortcut; everything else is one ⌘P away, by name.
     ⌘1 ⌘2 ⌘3      Day · Week · Systems         ⇧⌘F  ⎋   focus mode in · out
     ⌘[  ⌘]  ⌘T    previous · next · today
     ⌘N   ⌘⌫       new block · delete block     ⌘Z ⇧⌘Z   undo · redo
-    ⌘K            capture to Collection
+    ⌘K            capture a thought to today's Collection, from anywhere
+    ⇧⌘E           end day: the shutdown sheet
     ⇧⌘N           new session for the next deep block
     ⌘↩            next step: plan → start cycle → start break → debrief
-    ⌘.   ⇧⌘E      pause / resume · end cycle or break early
+    ⌘.   ⇧⌘.      pause / resume · end cycle or break early
 
 Inside the forms:
 
@@ -120,20 +121,22 @@ DeepCycles is the front app; the menu-bar timer is the control surface when it i
 4. Debrief: energy/morale/target table across cycles, five debrief questions.
 
 **Tasks and review**
-Capture (⌘K) → at shutdown, *Move to tasks* → the Tasks list (⇧⌘T). From there:
+Capture (⌘K) → at shutdown, *Move to tasks* → the Tasks list in Systems. From there:
 promote a task to *this week's outcomes* on the Week page ("↑ week"), tick outcomes
 into deep blocks and tasks into task blocks on the Day page, and tick them off on
 the block card or in the list. The weekly plan and values plan are checklists too:
 outcomes are done-for-the-week; values habits get one tick per day.
 Sessions live with their day (sorted by their block's start; finished ones drop to a
 "Done today" group; hover for ×). Every session from the last 30 days is reviewable
-in Systems → Session log (⇧⌘L) with its pulse and debrief.
+in Systems → Session log with its pulse and debrief.
 
-**Evening — End day (⇧⌘S)**
+**Evening — End day (⇧⌘E)**
 Deep-work hours are tallied from your cycles; add your own metrics (e.g. "CC" for cold
 calls), then flip *Shutdown complete*.
 
-Stray thoughts during a block go in *Collection* (⌘K) as checkable items; at shutdown, *Move to tasks* sends the open ones to the task list in Systems.
+Stray thoughts during a block go in *Collection*: ⌘K, or the tray icon in the top bar, opens a
+capture box from any page and from inside a running cycle, so you never leave the block. Items
+are checkable; at shutdown, *Move to tasks* sends the open ones to the task list in Systems.
 
 ## Where data lives
 `~/Library/Application Support/DeepCycles/plans.json` — one entry per day, and `system.json` for the core documents, weekly plans and disciplines. Plain JSON.
@@ -159,10 +162,10 @@ directory per page.
       App/        DeepCyclesApp, RootView, DateBar, MenuBarView, CycleAlerts (beep, notification)
       Commands/   CommandCatalog (every command and shortcut, once), AppCommands (the menus),
                   CommandPalette, ShortcutsSheet
-      Design/     Theme (palette, type, tokens), Buttons, Controls (keyboard-first controls),
-                  WritingField, Wordmark
+      Design/     Theme (palette, type, tokens), Focus (the ring, keyboard-driven only), Buttons,
+                  Controls (keyboard-first controls), WritingField, Wordmark
       Day/        PlannerView, DayGrid, BlockControls
-      Week/       WeekView, ValuesTracker
+      Week/       WeekView, EventDetail (the entry popover), ValuesTracker
       Focus/      FocusView, CyclesView (session list), SessionView (Prepare / Work / Debrief),
                   SessionPulse
       Systems/    SystemsView          Shutdown/   ShutdownView          Settings/   SettingsView

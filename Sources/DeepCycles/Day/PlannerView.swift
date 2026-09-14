@@ -16,7 +16,6 @@ struct PlannerView: View {
     @State private var syncStatus: String = ""
     @State private var showSettings = false
     @FocusState private var focus: Field?
-    @State private var captureFocus = 0
     @State private var draftPlaced = false      // the new-block slot is being configured, so show it on the grid
     @Environment(\.openSettings) private var openSettings
     /// Keyboard stops the planner places itself: the title field, and the grid (↑↓ select, ↩ edit, ⌫ delete).
@@ -61,7 +60,6 @@ struct PlannerView: View {
         switch cmd {
         case .newBlock: editingID = nil; newDraft(start: defaultStart(), end: nil); draftPlaced = true; focus = .title
         case .deleteBlock: deleteEditing()
-        case .focusCollection: captureFocus += 1
         case .importEvents: adoptAll()
         case .pushPlan: syncAll()
         case .reconcileCalendar: reconcile()
@@ -140,17 +138,13 @@ struct PlannerView: View {
             TextField("What will you do?", text: $draft.title)
                 .focused($focus, equals: .title)
                 .onSubmit(submitDraft)
-                .textFieldStyle(.plain).font(.system(size: 15, weight: .medium))
-                .padding(.horizontal, Space.m).padding(.vertical, Space.s)
-                .background(Theme.paper)
-                .clipShape(RoundedRectangle(cornerRadius: Radius.s, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: Radius.s, style: .continuous)
-                    .stroke(focus == .title ? Theme.deep : Color.clear, lineWidth: 1.5))
+                .font(.system(size: 15, weight: .medium))
+                .inputChrome(vertical: Space.s)
 
             KindPicker(kind: $draft.kind)
 
             HStack(spacing: Space.s) {
-                DatePicker("", selection: $draft.start, displayedComponents: .hourAndMinute).labelsHidden()
+                DatePicker("", selection: draftStart, displayedComponents: .hourAndMinute).labelsHidden()
                 Text("to").font(TypeScale.body).foregroundColor(Theme.inkFaint)
                 Text(draft.end.shortTime).font(TypeScale.body.monospacedDigit()).foregroundColor(Theme.ink)
                 Text("· \(draft.minutes) min").font(TypeScale.caption).foregroundColor(Theme.inkFaint)
@@ -194,10 +188,8 @@ struct PlannerView: View {
     private func notesField(lines: ClosedRange<Int>) -> some View {
         TextField("Notes", text: $draft.notes, axis: .vertical)
             .onSubmit(submitDraft)
-            .lineLimit(lines).textFieldStyle(.plain).font(TypeScale.body)
-            .padding(.horizontal, Space.m).padding(.vertical, Space.s)
-            .background(Theme.paper)
-            .clipShape(RoundedRectangle(cornerRadius: Radius.s, style: .continuous))
+            .lineLimit(lines).font(TypeScale.body)
+            .inputChrome(vertical: Space.s)
     }
 
     /// For a task block: tick the open tasks that belong in it. Batching small
@@ -242,10 +234,10 @@ struct PlannerView: View {
                     Button("Move to tasks") { store.processCollection() }.buttonStyle(QuietButtonStyle())
                 }
             }
-            TaskList(items: $store.today.captured, placeholder: "Capture a thought  ⌘K", focusRequest: captureFocus)
+            TaskList(items: $store.today.captured, placeholder: "Capture a thought")
                 .background(Theme.paper)
                 .clipShape(RoundedRectangle(cornerRadius: Radius.s, style: .continuous))
-            Text("Captured here so you can stay in the block. Processed into Tasks at shutdown.")
+            Text("⌘K captures from anywhere, inside a block included. Processed into Tasks at shutdown.")
                 .font(TypeScale.caption).foregroundColor(Theme.inkFaint)
         }
     }
@@ -321,6 +313,18 @@ struct PlannerView: View {
     }
 
     // MARK: Actions
+
+    /// The start picker moves the whole block: the length set with the presets is kept.
+    private var draftStart: Binding<Date> {
+        Binding(
+            get: { draft.start },
+            set: { new in
+                let length = draft.end.timeIntervalSince(draft.start)
+                draft.start = new
+                draft.end = new.addingTimeInterval(length)
+            }
+        )
+    }
 
     private func defaultStart() -> Date {
         let now = Date()

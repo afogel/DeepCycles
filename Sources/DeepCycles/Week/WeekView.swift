@@ -9,14 +9,38 @@ struct WeekView: View {
     @EnvironmentObject var ui: AppState
     @EnvironmentObject var calendar: CalendarService
     @State private var events: [String: [TimeBlock]] = [:]   // day key -> calendar events
+    @State private var detailID: UUID? = nil                 // the entry whose details popover is open
 
     private var days: [Date] {
         let c = Calendar(identifier: .iso8601)
         guard let start = c.dateInterval(of: .weekOfYear, for: store.selectedDate)?.start else { return [] }
         return (0..<7).compactMap { c.date(byAdding: .day, value: $0, to: start) }
     }
-    private let startHour = 7, endHour = 20
     private let ptPerMinute: CGFloat = 0.62
+
+    /// The grid spans the week's working hours (each day's own setting), stretched to fit anything
+    /// scheduled outside them so nothing is clipped.
+    private var hours: (start: Int, end: Int) {
+        let c = Calendar.current
+        var start = 23, end = 1
+        for d in days {
+            let plan = store.plan(for: d)
+            start = min(start, plan.workStartHour)
+            end = max(end, plan.workEndHour)
+            for b in (events[DateKeys.day(d)] ?? []) + plan.blocks {
+                start = min(start, c.component(.hour, from: b.start))
+                if c.isDate(b.end, inSameDayAs: d) {
+                    let m = c.component(.hour, from: b.end) * 60 + c.component(.minute, from: b.end)
+                    end = max(end, (m + 59) / 60)
+                } else {
+                    end = 24
+                }
+            }
+        }
+        return (max(0, start), min(24, max(start + 1, end)))
+    }
+    private var startHour: Int { hours.start }
+    private var endHour: Int { hours.end }
     private var height: CGFloat { CGFloat((endHour - startHour) * 60) * ptPerMinute }
 
     var body: some View {
@@ -108,6 +132,10 @@ struct WeekView: View {
                         .frame(width: w, height: h, alignment: .leading)
                         .background(b.kind.color.opacity(b.fromCalendar ? 0.08 : 0.18))
                         .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
+                        .hoverTint(RoundedRectangle(cornerRadius: 3, style: .continuous))
+                        .contentShape(Rectangle())
+                        .onTapGesture { detailID = b.id }
+                        .popover(isPresented: showingDetail(b.id), arrowEdge: .trailing) { EventDetail(block: b, day: day) }
                         .offset(x: CGFloat(p.col) * (w + 2), y: yOffset(b.start, on: day) + 1)
                     }
                 }
@@ -116,6 +144,11 @@ struct WeekView: View {
             .contentShape(Rectangle())
             .onTapGesture(count: 2) { store.selectedDate = Calendar.current.startOfDay(for: day); ui.tab = .day }
             .onTapGesture { store.selectedDate = Calendar.current.startOfDay(for: day) }
+    }
+
+    /// One popover at a time: open for the entry whose id is `detailID`, and closing it clears that.
+    private func showingDetail(_ id: UUID) -> Binding<Bool> {
+        Binding(get: { detailID == id }, set: { if !$0 && detailID == id { detailID = nil } })
     }
 
     private func yOffset(_ time: Date, on day: Date) -> CGFloat {
@@ -156,8 +189,11 @@ struct WeekView: View {
                     Text("Week \(store.selectedWeekKey.suffix(2))").font(TypeScale.display).foregroundColor(Theme.ink)
                     Spacer()
                     Button("Copy last week") {
-                        if let p = store.lastWeek { store.thisWeek = p.carriedForward() }
-                    }.buttonStyle(QuietButtonStyle())
+                        if let p = store.lastWeek { store.snapshotWeek(); store.thisWeek = p.carriedForward() }
+                    }
+                    .buttonStyle(QuietButtonStyle())
+                    .disabled(store.lastWeek == nil)
+                    .help("Carries last week's open outcomes, habits and notes into this week, replacing what is here. ⌘Z undoes it.")
                 }
 
                 VStack(alignment: .leading, spacing: Space.s) {
@@ -174,8 +210,8 @@ struct WeekView: View {
                     Text("Pulled from the strategic plans and the task list. Schedule them into deep blocks on the Day page.")
                         .font(TypeScale.caption).foregroundColor(Theme.inkFaint)
                     TextField("How I'm attacking the week (optional note)", text: Binding(get: { store.thisWeek.weeklyPlan }, set: { store.thisWeek.weeklyPlan = $0 }), axis: .vertical)
-                        .lineLimit(2...6).textFieldStyle(.plain).font(TypeScale.body)
-                        .padding(Space.s).background(Theme.paper).clipShape(RoundedRectangle(cornerRadius: Radius.s, style: .continuous))
+                        .lineLimit(2...6).font(TypeScale.body)
+                        .inputChrome()
                 }
 
                 VStack(alignment: .leading, spacing: Space.s) {
@@ -184,8 +220,8 @@ struct WeekView: View {
                         .font(TypeScale.caption).foregroundColor(Theme.inkFaint)
                     ValuesTracker(days: days)
                     TextField("Mental-health practices, reminders (optional note)", text: Binding(get: { store.thisWeek.valuesPlan }, set: { store.thisWeek.valuesPlan = $0 }), axis: .vertical)
-                        .lineLimit(2...5).textFieldStyle(.plain).font(TypeScale.body)
-                        .padding(Space.s).background(Theme.paper).clipShape(RoundedRectangle(cornerRadius: Radius.s, style: .continuous))
+                        .lineLimit(2...5).font(TypeScale.body)
+                        .inputChrome()
                 }
 
                 VStack(alignment: .leading, spacing: Space.s) {

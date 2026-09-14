@@ -147,10 +147,13 @@ struct ShutdownView: View {
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
+    /// A status line, not a checkbox: the app verifies these, you do not tick them.
     private func check(_ text: String, done: Bool) -> some View {
         HStack(alignment: .top, spacing: 8) {
-            Image(systemName: done ? "checkmark.square.fill" : "square")
-                .foregroundColor(done ? Theme.breakC : Theme.inkFaint).padding(.top, 2)
+            Image(systemName: done ? "checkmark" : "circle.fill")
+                .font(.system(size: done ? 12 : 6, weight: .bold))
+                .foregroundColor(done ? Theme.breakC : Theme.nowLine)
+                .frame(width: 14, height: 18)
             Text(text).font(Theme.body).foregroundColor(done ? Theme.inkFaint : Theme.ink)
         }
     }
