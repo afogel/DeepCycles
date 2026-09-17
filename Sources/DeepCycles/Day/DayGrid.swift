@@ -311,6 +311,7 @@ struct BlockCard: View {
                             Image(systemName: t.done ? "checkmark.circle.fill" : "circle").font(.system(size: 9))
                                 .foregroundColor(t.done ? Theme.breakC : Theme.inkFaint)
                             Text(t.text).font(TypeScale.caption).foregroundColor(t.done ? Theme.inkFaint : Theme.ink).lineLimit(1)
+                                .struckThrough(t.done, text: t.text, font: TypeScale.caption)
                         }
                     }
                 } else if block.minutes >= 45, !block.notes.isEmpty {

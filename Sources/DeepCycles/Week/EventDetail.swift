@@ -119,6 +119,7 @@ struct EventDetail: View {
                             Image(systemName: t.done ? "checkmark.circle.fill" : "circle")
                                 .font(.system(size: 10)).foregroundColor(t.done ? Theme.breakC : Theme.inkFaint).frame(width: 12)
                             Text(t.text).lineLimit(1).foregroundColor(t.done ? Theme.inkFaint : Theme.ink)
+                                .struckThrough(t.done, text: t.text)
                         }
                     }
                 }

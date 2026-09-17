@@ -102,6 +102,17 @@ enum Radius {
     static let m: CGFloat = 10
 }
 
+/// Animation timings. Finishing a task is the one place the app is deliberately unhurried: the
+/// line has to be seen drawing itself before the row is allowed to go.
+enum Motion {
+    /// The strike sweeping across a finished task.
+    static let strike = Animation.easeOut(duration: 0.28)
+    /// A row leaving a list.
+    static let dismiss = Animation.easeInOut(duration: 0.22)
+    /// Seconds a struck-through row stays put before it leaves a list that shows only open items.
+    static let strikeHold: Double = 0.4
+}
+
 // MARK: - Reusable modifiers
 
 /// A section: vertical rhythm only. Separation comes from whitespace, not boxes.

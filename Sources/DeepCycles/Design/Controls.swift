@@ -281,15 +281,64 @@ struct TaskCheck: View {
         Image(systemName: done ? "checkmark.circle.fill" : "circle")
             .font(.system(size: 14))
             .foregroundColor(done ? Theme.breakC : Theme.inkFaint)
+            .contentTransition(.symbolEffect(.replace))
+            .symbolEffect(.bounce, value: done)
             .frame(width: 16, height: 16)
             .contentShape(Rectangle())
-            .onTapGesture { done.toggle() }
+            .onTapGesture { toggle() }
             .focusRing(focused, shape: Circle())
             .focusable()
             .focused($focused)
             .focusEffectDisabled()
-            .onKeyPress(.space) { done.toggle(); return .handled }
+            .onKeyPress(.space) { toggle(); return .handled }
             .accessibilityAddTraits(.isToggle)
             .accessibilityValue(done ? "Done" : "Open")
     }
+
+    /// Ticking is animated at the source so the tick, the strike and the row all move together.
+    private func toggle() {
+        withAnimation(Motion.strike) { done.toggle() }
+    }
+}
+
+// MARK: - Strikethrough
+
+/// The line a finished task earns: it draws itself across the words, left to right, and retracts
+/// when the task is reopened. It is measured from a hidden copy of the text rather than from the
+/// row, so an editable field that fills its row still gets a line only as long as what it says.
+struct StrikeThrough: ViewModifier {
+    let done: Bool
+    let text: String
+    let font: Font
+    let color: Color
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(alignment: .leading) {
+                Text(text).font(font).lineLimit(1).hidden()
+                    .overlay {
+                        Capsule(style: .continuous)
+                            .fill(color)
+                            .frame(height: 1.5)
+                            .scaleEffect(x: done ? 1 : 0, anchor: .leading)
+                            .opacity(done ? 1 : 0)
+                    }
+                    .allowsHitTesting(false)
+            }
+            .animation(Motion.strike, value: done)
+    }
+}
+
+extension View {
+    /// Strikes this text through when `done`. `text` and `font` have to match what is on screen:
+    /// the line is sized from them.
+    func struckThrough(_ done: Bool, text: String, font: Font = TypeScale.body,
+                       color: Color = Theme.breakC) -> some View {
+        modifier(StrikeThrough(done: done, text: text, font: font, color: color))
+    }
+}
+
+extension AnyTransition {
+    /// A finished row leaving a list of open tasks: it settles back into the page.
+    static let taskDone: AnyTransition = .opacity.combined(with: .scale(scale: 0.96, anchor: .leading))
 }

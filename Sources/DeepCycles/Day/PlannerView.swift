@@ -17,6 +17,7 @@ struct PlannerView: View {
     @State private var showSettings = false
     @FocusState private var focus: Field?
     @State private var draftPlaced = false      // the new-block slot is being configured, so show it on the grid
+    @State private var striking: Set<UUID> = []   // outcomes ticked off, still showing their strike
     @Environment(\.openSettings) private var openSettings
     /// Keyboard stops the planner places itself: the title field, and the grid (↑↓ select, ↩ edit, ⌫ delete).
     enum Field { case title, grid }
@@ -96,14 +97,15 @@ struct PlannerView: View {
                     Spacer()
                     Button("Open") { ui.tab = .week }.buttonStyle(QuietButtonStyle())
                 }
-                ForEach(w.outcomes.filter { !$0.done }.prefix(6)) { t in
+                ForEach(w.outcomes.filter { !$0.done || striking.contains($0.id) }.prefix(6)) { t in
                     HStack(spacing: Space.s) {
-                        Button {
-                            var wk = store.thisWeek
-                            if let i = wk.outcomes.firstIndex(where: { $0.id == t.id }) { wk.outcomes[i].done = true; store.thisWeek = wk }
-                        } label: { Image(systemName: "circle").font(.system(size: 13)).foregroundColor(Theme.inkFaint) }.buttonStyle(.plain)
-                        Text(t.text).font(TypeScale.body).foregroundColor(Theme.ink).lineLimit(1)
+                        TaskCheck(done: Binding(get: { t.done }, set: { _ in complete(t) }))
+                            .frame(width: 13, height: 13)
+                        Text(t.text).font(TypeScale.body).foregroundColor(t.done ? Theme.inkFaint : Theme.ink)
+                            .lineLimit(1)
+                            .struckThrough(t.done, text: t.text)
                     }
+                    .transition(.taskDone)
                 }
                 if !w.values.isEmpty {
                     let today = store.selectedDate
@@ -122,6 +124,21 @@ struct PlannerView: View {
                     }
                 }
             }
+        }
+    }
+
+    /// Ticking an outcome off here finishes it for the week. The row is kept on the panel until
+    /// its strike has drawn itself, then leaves.
+    private func complete(_ t: TaskItem) {
+        guard !striking.contains(t.id) else { return }
+        striking.insert(t.id)
+        var wk = store.thisWeek
+        if let i = wk.outcomes.firstIndex(where: { $0.id == t.id }) {
+            wk.outcomes[i].done = true
+            store.thisWeek = wk
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Motion.strikeHold) {
+            withAnimation(Motion.dismiss) { _ = striking.remove(t.id) }
         }
     }
 

@@ -7,14 +7,18 @@ struct TaskList: View {
     var placeholder: String = "Add a task"
     var showDone: Bool = true
     @State private var newText = ""
+    @State private var striking: Set<UUID> = []   // finished rows still showing their line
     @FocusState private var focusedID: UUID?
     @FocusState private var addFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             ForEach($items) { $item in
-                if showDone || !item.done {
-                    TaskRow(item: $item, focused: $focusedID) { items.removeAll { $0.id == item.id } }
+                if showDone || !item.done || striking.contains(item.id) {
+                    TaskRow(item: $item, focused: $focusedID, onComplete: hold) {
+                        items.removeAll { $0.id == item.id }
+                    }
+                    .transition(.taskDone)
                 }
             }
             HStack(spacing: Space.s) {
@@ -25,6 +29,15 @@ struct TaskList: View {
                     .onSubmit { add() }
             }
             .padding(.vertical, 5).padding(.horizontal, Space.s)
+        }
+    }
+
+    /// A list that hides finished tasks keeps the row alive until its strike has been seen.
+    private func hold(_ id: UUID) {
+        guard !showDone else { return }
+        striking.insert(id)
+        DispatchQueue.main.asyncAfter(deadline: .now() + Motion.strikeHold) {
+            withAnimation(Motion.dismiss) { _ = striking.remove(id) }
         }
     }
 
@@ -40,16 +53,21 @@ struct TaskList: View {
 struct TaskRow: View {
     @Binding var item: TaskItem
     var focused: FocusState<UUID?>.Binding
+    let onComplete: (UUID) -> Void
     let onDelete: () -> Void
     @State private var hover = false
 
     var body: some View {
         HStack(spacing: Space.s) {
-            TaskCheck(done: $item.done)
+            TaskCheck(done: Binding(get: { item.done }, set: { done in
+                item.done = done
+                if done { onComplete(item.id) }
+            }))
             TextField("", text: $item.text)
                 .textFieldStyle(.plain).font(TypeScale.body)
                 .foregroundColor(item.done ? Theme.inkFaint : Theme.ink)
                 .opacity(item.done ? 0.6 : 1)
+                .struckThrough(item.done, text: item.text)
                 .focused(focused, equals: item.id)
             if hover {
                 Button(action: onDelete) {
