@@ -9,6 +9,7 @@ struct DeepCyclesApp: App {
     @StateObject private var engine: CycleEngine
 
     init() {
+        CycleAlerts.configure()
         let s = Store()
         let e = CycleEngine()
         e.store = s

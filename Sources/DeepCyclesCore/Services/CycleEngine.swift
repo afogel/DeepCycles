@@ -1,7 +1,7 @@
 import Foundation
 import Combine
 
-/// What to tell the user when a cycle or a break ends.
+/// What to tell the user when work is wrapping up or a cycle or break ends.
 package struct CycleAlert: Equatable {
     package let title: String
     package let body: String
@@ -25,7 +25,7 @@ package final class CycleEngine: ObservableObject {
     @Published package private(set) var sessionDateKey: String = ""
 
     package weak var store: Store?
-    /// Called when a work cycle or a break ends.
+    /// Called with two minutes of work remaining, or when a work cycle or break ends.
     package var alert: ((CycleAlert) -> Void)?
 
     private let makeTimer: TimerFactory
@@ -73,6 +73,7 @@ package final class CycleEngine: ObservableObject {
         paused = false
         phase = .working
         run()
+        warnIfWrappingUp()
     }
 
     package func startBreak(minutes: Int) {
@@ -104,7 +105,13 @@ package final class CycleEngine: ObservableObject {
         guard !paused else { return }
         remaining -= 1
         if phase == .working { workedSeconds += 1 }
+        warnIfWrappingUp()
         if remaining <= 0 { finish() }
+    }
+
+    private func warnIfWrappingUp() {
+        guard phase == .working, remaining == 120 else { return }
+        alert?(CycleAlert(title: "2 minutes left", body: "Your deep-work cycle is almost over. Start wrapping things up."))
     }
 
     private func finish() {
