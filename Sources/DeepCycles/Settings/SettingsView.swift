@@ -1,7 +1,7 @@
 import SwiftUI
 import DeepCyclesCore
 
-/// ⌘, — appearance, the hours a new day starts with, and calendar sync.
+/// ⌘, — appearance, notification sound, the hours a new day starts with, and calendar sync.
 @MainActor
 struct SettingsView: View {
     @EnvironmentObject var store: Store
@@ -13,6 +13,14 @@ struct SettingsView: View {
             section("Appearance") {
                 SegmentPicker(selection: $ui.appearance, options: Appearance.allCases.map { (value: $0, label: $0.label) })
                     .frame(width: 260)
+            }
+
+            section("Notifications") {
+                Toggle("Play a soft bell for cycle notifications", isOn: $ui.notificationSoundEnabled)
+                    .toggleStyle(KeySwitchStyle())
+                    .font(TypeScale.body)
+                Text("Rings for the two-minute warning, completed work cycles, and finished breaks. Turn off for silent notifications.")
+                    .font(TypeScale.caption).foregroundColor(Theme.inkFaint)
             }
 
             section("Work day") {

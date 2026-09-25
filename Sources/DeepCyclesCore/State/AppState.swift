@@ -2,7 +2,7 @@ import Foundation
 import Combine
 
 /// What the window is showing: page, focus mode, sheets, the palette, and the Focus selection.
-/// Nothing here is saved except the appearance preference. Menus and the palette change this
+/// Nothing here is saved except appearance and notification sound preferences. Menus and the palette change this
 /// object; the views follow it. Persisted data lives in `Store`.
 @MainActor
 package final class AppState: ObservableObject {
@@ -23,11 +23,16 @@ package final class AppState: ObservableObject {
         didSet { defaults.set(appearance.rawValue, forKey: "appearance") }
     }
 
+    @Published package var notificationSoundEnabled: Bool {
+        didSet { defaults.set(notificationSoundEnabled, forKey: "notificationSoundEnabled") }
+    }
+
     private let defaults: UserDefaults
 
     package init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         appearance = Appearance(rawValue: defaults.string(forKey: "appearance") ?? "") ?? .system
+        notificationSoundEnabled = defaults.object(forKey: "notificationSoundEnabled") as? Bool ?? true
     }
 
     /// Show a page, leaving Focus if it was open.

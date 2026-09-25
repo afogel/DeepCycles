@@ -4,16 +4,19 @@ import DeepCyclesCore
 @main
 struct DeepCyclesApp: App {
     @StateObject private var store: Store
-    @StateObject private var ui = AppState()
+    @StateObject private var ui: AppState
     @StateObject private var calendar = CalendarService()
     @StateObject private var engine: CycleEngine
 
     init() {
+        CycleAlerts.configure()
         let s = Store()
+        let state = AppState()
         let e = CycleEngine()
         e.store = s
-        e.alert = { CycleAlerts.deliver($0) }
+        e.alert = { CycleAlerts.deliver($0, soundEnabled: state.notificationSoundEnabled) }
         _store = StateObject(wrappedValue: s)
+        _ui = StateObject(wrappedValue: state)
         _engine = StateObject(wrappedValue: e)
         // Saves are coalesced; write them out when the app goes to the background or quits,
         // whether or not the window is open. The center keeps these observers for the app's life.
