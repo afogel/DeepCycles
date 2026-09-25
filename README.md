@@ -127,6 +127,12 @@ warning countdown. Two-minute cycles warn at the start; shorter cycles only noti
 completion. Notifications require the built `.app` and permission in macOS System
 Settings → Notifications → DeepCycles; macOS Focus settings may silence them.
 
+Each alert also plays a soft bell, enabled by default. Turn it on or off in
+**Settings (⌘,) → Notifications → Play a soft bell for cycle notifications**.
+The preference is saved between launches and applies to all three alerts without
+disabling visual notifications. The bell plays directly in the running app, even
+if macOS suppresses notification banners.
+
 **Tasks and review**
 Capture (⌘K) → at shutdown, *Move to tasks* → the Tasks list in Systems. From there:
 promote a task to *this week's outcomes* on the Week page ("↑ week"), tick outcomes
@@ -166,7 +172,7 @@ directory per page.
       Flow/       SessionFlow (the ⌘↩ steps, shared by buttons, menus and palette), FuzzyMatch
       Layout/     OverlapPacking (side-by-side blocks)
     Sources/DeepCycles/
-      App/        DeepCyclesApp, RootView, DateBar, MenuBarView, CycleAlerts (beep, notification)
+      App/        DeepCyclesApp, RootView, DateBar, MenuBarView, CycleAlerts (soft bell, notification)
       Commands/   CommandCatalog (every command and shortcut, once), AppCommands (the menus),
                   CommandPalette, ShortcutsSheet
       Design/     Theme (palette, type, tokens), Focus (the ring, keyboard-driven only), Buttons,
