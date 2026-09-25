@@ -43,6 +43,86 @@ final class CycleEngineTests: XCTestCase {
         XCTAssertEqual(h.engine.menuTitle, "Review")
     }
 
+    func testWorkWarnsAtTwoMinutesThenCompletes() {
+        let (h, s) = attached()
+        var alerts: [CycleAlert] = []
+        h.engine.alert = { alerts.append($0) }
+        h.engine.startWork(minutes: 3)
+        h.clock.tick(59)
+        XCTAssertTrue(alerts.isEmpty)
+        h.clock.tick()
+        XCTAssertEqual(h.engine.remaining, 120)
+        XCTAssertEqual(h.engine.phase, .working)
+        XCTAssertEqual(alerts, [
+            CycleAlert(title: "2 minutes left", body: "Your deep-work cycle is almost over. Start wrapping things up.")
+        ])
+        h.clock.tick(120)
+        XCTAssertEqual(alerts.map(\.title), ["2 minutes left", "Cycle complete"])
+        XCTAssertEqual(h.engine.phase, .reviewing)
+        XCTAssertEqual(h.store.session(s.id, dateKey: h.store.selectedKey)?.cycles[0].workedSeconds, 180)
+    }
+
+    func testPauseDelaysWarningAndResumeDoesNotRepeatIt() {
+        let (h, _) = attached()
+        var alerts: [CycleAlert] = []
+        h.engine.alert = { alerts.append($0) }
+        h.engine.startWork(minutes: 3)
+        h.clock.tick(59)
+        h.engine.togglePause()
+        h.clock.tick(30)
+        XCTAssertTrue(alerts.isEmpty)
+        XCTAssertEqual(h.engine.remaining, 121)
+        h.engine.togglePause()
+        h.clock.tick()
+        XCTAssertEqual(alerts.map(\.title), ["2 minutes left"])
+        h.engine.togglePause()
+        h.clock.tick(30)
+        h.engine.togglePause()
+        h.clock.tick()
+        XCTAssertEqual(alerts.map(\.title), ["2 minutes left"])
+    }
+
+    func testTwoMinuteWorkWarnsImmediatelyAndEachNewCycleWarnsAgain() {
+        let (h, _) = attached()
+        var alerts: [CycleAlert] = []
+        h.engine.alert = { alerts.append($0) }
+        h.engine.startWork(minutes: 2)
+        XCTAssertEqual(alerts.map(\.title), ["2 minutes left"])
+        h.clock.tick(120)
+        XCTAssertEqual(alerts.map(\.title), ["2 minutes left", "Cycle complete"])
+        h.engine.startWork(minutes: 3)
+        h.clock.tick(60)
+        XCTAssertEqual(alerts.map(\.title), ["2 minutes left", "Cycle complete", "2 minutes left"])
+    }
+
+    func testBreakDoesNotGiveWorkWarning() {
+        let (h, _) = attached()
+        var alerts: [CycleAlert] = []
+        h.engine.alert = { alerts.append($0) }
+        h.engine.startBreak(minutes: 3)
+        h.clock.tick(60)
+        XCTAssertEqual(h.engine.remaining, 120)
+        XCTAssertTrue(alerts.isEmpty)
+        h.clock.tick(120)
+        XCTAssertEqual(alerts.map(\.title), ["Break over"])
+    }
+
+    func testEndingOrStoppingBeforeWarningDoesNotDeliverIt() {
+        let (h, _) = attached()
+        var alerts: [CycleAlert] = []
+        h.engine.alert = { alerts.append($0) }
+        h.engine.startWork(minutes: 3)
+        h.clock.tick(59)
+        h.engine.endNow()
+        h.clock.tick()
+        XCTAssertEqual(alerts.map(\.title), ["Cycle complete"])
+        h.engine.startWork(minutes: 3)
+        h.clock.tick(59)
+        h.engine.stop()
+        h.clock.tick()
+        XCTAssertEqual(alerts.map(\.title), ["Cycle complete"])
+    }
+
     func testPauseFreezesTheCountdown() {
         let (h, _) = attached()
         h.engine.startWork(minutes: 1)

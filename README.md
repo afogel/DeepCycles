@@ -120,6 +120,13 @@ DeepCycles is the front app; the menu-bar timer is the control surface when it i
    (target hit? noteworthy? distractions? improvements?) → Start break → repeat.
 4. Debrief: energy/morale/target table across cycles, five debrief questions.
 
+Allow notifications when prompted at launch. DeepCycles sends a wrap-up warning with
+two minutes of work remaining, a notification when the work cycle finishes, and another
+when the break ends—even while DeepCycles is the front app. Pausing also pauses the
+warning countdown. Two-minute cycles warn at the start; shorter cycles only notify at
+completion. Notifications require the built `.app` and permission in macOS System
+Settings → Notifications → DeepCycles; macOS Focus settings may silence them.
+
 **Tasks and review**
 Capture (⌘K) → at shutdown, *Move to tasks* → the Tasks list in Systems. From there:
 promote a task to *this week's outcomes* on the Week page ("↑ week"), tick outcomes
